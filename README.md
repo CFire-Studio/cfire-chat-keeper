@@ -2,7 +2,11 @@
 
 **守护创作者与 AI 交流的回忆和数据 🐾**
 
-[English](./README_EN.md) | 中文 | ![加入用户交流群](./demo/lark-user-group.png)
+<div align="center">
+
+[English](./README_EN.md) | 中文 | <img src="./demo/lark-user-group.png" alt="加入用户交流群" width="120">
+
+</div>
 
 
 ---
