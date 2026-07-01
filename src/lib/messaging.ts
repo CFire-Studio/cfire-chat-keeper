@@ -1,0 +1,37 @@
+import type { ChatMessage, Conversation, IngestEvent } from "./types"
+
+export const MSG = {
+  INGEST: "ack:ingest",          // 原始报文 → background
+  PARSED: "ack:parsed",          // 解析后结果 → background
+  LIST_CONVERSATIONS: "q:list",  // popup → background
+  GET_MESSAGES: "q:messages",
+  DELETE_CONV: "q:delete",
+  SEARCH_CONVERSATIONS: "q:search", // popup → background（标题+全文搜索）
+  SCROLL_UP: "ack:scroll-up",     // popup → content script (via chrome.tabs.sendMessage)
+  UPDATE_TITLE: "ack:update-title" // collector → background（侧边栏标题更新）
+} as const
+
+export interface ParsedPayload {
+  conversation: Conversation
+  messages: ChatMessage[]
+  // true：先清空该 conv 现有 messages 再写入（用于完整快照：DOM/API 全量列表）
+  // false/缺省：只 upsert（用于 SSE 流式增量，避免抖动）
+  replace?: boolean
+}
+
+export type ReqMap = {
+  [MSG.INGEST]: { payload: IngestEvent; reply: { ok: boolean } }
+  [MSG.PARSED]: { payload: ParsedPayload; reply: { ok: boolean } }
+  [MSG.LIST_CONVERSATIONS]: { payload: null; reply: Conversation[] }
+  [MSG.GET_MESSAGES]: { payload: { id: string }; reply: ChatMessage[] }
+  [MSG.DELETE_CONV]: { payload: { id: string }; reply: { ok: boolean } }
+  [MSG.SEARCH_CONVERSATIONS]: { payload: { keyword: string }; reply: Conversation[] }
+  [MSG.UPDATE_TITLE]: { payload: { id: string; title: string }; reply: { ok: boolean } }
+}
+
+export function send<K extends keyof ReqMap>(
+  type: K,
+  payload: ReqMap[K]["payload"]
+): Promise<ReqMap[K]["reply"]> {
+  return chrome.runtime.sendMessage({ type, payload })
+}
