@@ -4,9 +4,12 @@
 
 <div align="center">
 
-English | [中文](./README.md) | <img src="./demo/lark-user-group.png" alt="加入用户交流群" width="120">
+English | [中文](./README.md)
 
+<img src="./demo/lark-user-group.png" alt="加入用户交流群" width="240">
 </div>
+
+
 
 ---
 
