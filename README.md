@@ -1,12 +1,9 @@
 # CFire Chat Keeper
 
-<div align="center">
-
 **守护创作者与 AI 交流的回忆和数据 🐾**
 
-[English](./README_EN.md) | 中文
+[English](./README_EN.md) | 中文 | ![加入用户交流群](./demo/lark-user-group.png)
 
-</div>
 
 ---
 
@@ -220,7 +217,5 @@ ai-chat-keeper/
 <div align="center">
 
 **CFire Chat Keeper - 陪你守护每一次 AI 对话** 🐾
-
-[加入用户交流群](./demo/lark-user-group.png)
 
 </div>
