@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+
+# Build output
+build/
+dist/
+*.tsbuildinfo
+
+# Plasmo build artifacts leaked to root
+/manifest.json
+/popup.html
+/popup.*.js
+/collector.*.js
+/main-world-hook.*.js
+/icon*.png
+/icon*.jpg
+/logo.*.jpg
+/static/
+
+# Test artifacts
+tests/_e2e-profile/
+tests/_*.json
+test_sample.txt
+
+# Plasmo cache
+.plasmo/
+
+# IDE & OS
+.vscode/
+.trae/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Env & secrets
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
