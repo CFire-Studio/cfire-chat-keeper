@@ -14,8 +14,7 @@ English | [中文](./README.md)
 ---
 
 ## 📖 Introduction
-
-CFire Chat Keeper is a Chrome extension that helps you batch extract and save conversation records with AI assistants such as DeepSeek, ChatGPT, and Doubao. Whether it's a creative dialogue sparked by inspiration or a carefully tuned prompt engineering session, you can save it locally with one click and preserve it forever.
+CFire Chat Keeper is a Chrome extension that helps you batch extract and save conversations from AI assistants like DeepSeek, ChatGPT, and Doubao. Whether it's a creative dialogue sparked by inspiration or a carefully tuned prompt engineering session, you can save them locally with one click and preserve them forever. All data is processed entirely on your device; your conversation content is never uploaded to any server, ensuring zero risk of data leakage.
 
 ## ✨ Core Features
 
@@ -215,19 +214,3 @@ If you encounter issues or have feature suggestions:
 - ✅ Real-time search and filtering
 - ✅ Full retrieval for long Doubao conversations
 - ✅ Chinese and English bilingual support
-
-## 📄 License
-
-This project is for learning and personal use only.
-
-## 🙏 Acknowledgments
-
-Thanks to all AI platforms for their excellent services, enabling creators to have wonderful conversations with AI.
-
----
-
-<div align="center">
-
-**CFire Chat Keeper - Preserving Every AI Conversation with You** 🐾
-
-</div>
