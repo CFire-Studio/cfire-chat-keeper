@@ -67,6 +67,10 @@ For long conversations on platforms like Doubao, a "Scroll to Retrieve" feature 
 
 ## 🚀 Installation
 
+### Installation Demo
+
+<video src="./demo/install.mp4" controls width="100%"></video>
+
 ### Method 1: Install from Release (Recommended)
 
 1. Download the latest version `CFire-Chat-Keeper-v0.2.0-chrome.zip` from [Releases](https://github.com/CFire-Studio/cfire-chat-keeper/releases)
@@ -106,6 +110,8 @@ After the build is complete, load the extension from the `build/chrome-mv3-prod`
 5. **Export conversations**: Click the MD or JSON button to export a single conversation
 
 ### Batch Export
+
+<video src="./demo/download-demo.mp4" controls width="100%"></video>
 
 1. Click the "Batch Download" button in the extension popup
 2. Select the export format (Markdown or JSON)
