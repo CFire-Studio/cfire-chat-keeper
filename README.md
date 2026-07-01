@@ -63,7 +63,7 @@ CFire Chat Keeper 是一款 Chrome 扩展程序，帮助你批量提取并保存
 
 ### 方法一：从 Release 安装（推荐）
 
-1. 从 [Releases](./release/) 下载最新版本的 `CFire-Chat-Keeper-v0.2.0-chrome.zip`
+1. 从 [Releases](https://github.com/CFire-Studio/cfire-chat-keeper/releases) 下载最新版本的 `CFire-Chat-Keeper-v0.2.0-chrome.zip`
 2. 解压到任意目录
 3. 打开 Chrome 浏览器，访问 `chrome://extensions/`
 4. 开启右上角的"开发者模式"
