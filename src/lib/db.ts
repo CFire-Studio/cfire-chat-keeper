@@ -99,6 +99,14 @@ export async function saveRaw(r: RawPayload): Promise<void> {
   })
 }
 
+export async function getAllRaw(): Promise<RawPayload[]> {
+  return tx("raw", "readonly", async (t) => {
+    return reqAsPromise(
+      t.objectStore("raw").getAll() as IDBRequest<RawPayload[]>
+    )
+  })
+}
+
 export async function listConversations(): Promise<Conversation[]> {
   return tx("conversations", "readonly", async (t) => {
     const all = await reqAsPromise(
