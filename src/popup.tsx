@@ -88,6 +88,13 @@ export default function Popup() {
     return () => clearTimeout(id)
   }, [keyword])
 
+  // 滚动期间定时刷新列表，让用户实时看到加载进度，无需手动点刷新
+  useEffect(() => {
+    if (!scrolling) return
+    const id = setInterval(refresh, 2000)
+    return () => clearInterval(id)
+  }, [scrolling])
+
   useEffect(() => {
     const kw = debouncedKeyword.trim()
     if (!kw) {

@@ -50,10 +50,18 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       // 豆包虚拟滚动下只有可见消息在 DOM 中，滚到底部确保对话末尾的图片被渲染。
       if (site?.id === "doubao") {
         await collectDoubaoDomImages()
+        // 兜底恢复：scrollUpLoop 期间多条 API 响应快速到达，
+        // 部分 PARSED 消息可能因 SW 休眠/消息丢失未处理。
+        // 从 raw 表重新解析所有 /im/chain/single 响应，补回丢失的消息。
+        try {
+          await send(MSG.REPARSE_RAW, { site: "doubao" })
+        } catch {
+          // SW 不可达时忽略，raw 表数据仍保留供下次恢复
+        }
       }
-      sendResponse(result)
-    } catch {
-      sendResponse({ iterations: 0, scrolled: false })
+      sendResponse({ ...result, __collectorVersion: "v2-2026-07-06" })
+    } catch (e) {
+      sendResponse({ iterations: 0, scrolled: false, error: String(e), stack: (e as Error)?.stack, __collectorVersion: "v2-2026-07-06" })
     }
   })()
   return true // 异步响应
@@ -104,33 +112,69 @@ function sleep(ms: number): Promise<void> {
 }
 
 // 循环向上滚动，触发页面发起 /im/chain/single 加载更早消息。
-// 通过监测 lastImChainRespAt 变化判断是否还有更早消息；无新响应即到顶。
+// 判定"到顶"采用"连续 N 次无新响应"策略，避免单次网络抖动提前终止。
+// 同时多管齐下触发 load-more：scrollTop=0 + wheel + scrollBy，
+// 并把 scrollHeight 增长作为辅助信号（API 响应慢但 DOM 已渲染时也继续）。
 async function scrollUpLoop(
-  maxIter = 30,
-  waitMs = 2000
-): Promise<{ iterations: number; scrolled: boolean }> {
+  maxIter = 25,
+  waitMs = 4000,
+  maxConsecutiveEmpty = 2,
+  overallTimeoutMs = 120000
+): Promise<{ iterations: number; scrolled: boolean; reachedTop: boolean }> {
   const container = findScrollContainer()
-  if (!container) return { iterations: 0, scrolled: false }
+  if (!container) return { iterations: 0, scrolled: false, reachedTop: false }
 
+  const overallDeadline = Date.now() + overallTimeoutMs
   let iter = 0
+  let consecutiveEmpty = 0
+  let reachedTop = false
+
   for (; iter < maxIter; iter++) {
+    if (Date.now() >= overallDeadline) break
+
     const beforeTs = lastImChainRespAt
-    // 滚到顶：触发虚拟滚动的 load-more（IntersectionObserver on scroll_holder sentinel）
+    const beforeSH = container.scrollHeight
+
+    // 多种滚动触发：scrollTop=0 + wheel 事件 + scrollBy
+    // 不同框架对滚动信号的监听方式不同，多管齐下提高命中率
     container.scrollTop = 0
-    // 主动派发 scroll 事件（某些框架监听 scroll 而非仅依赖 IntersectionObserver）
     container.dispatchEvent(new Event("scroll", { bubbles: true }))
-    // 等待新的 /im/chain/single 响应
+    container.dispatchEvent(
+      new WheelEvent("wheel", {
+        deltaY: -container.clientHeight * 2,
+        bubbles: true,
+        cancelable: true
+      })
+    )
+
+    // 等待新的 /im/chain/single 响应 OR scrollHeight 增长
     const deadline = Date.now() + waitMs
+    let gotNew = false
     while (Date.now() < deadline) {
-      if (lastImChainRespAt > beforeTs) break
+      if (lastImChainRespAt > beforeTs) { gotNew = true; break }
+      if (container.scrollHeight > beforeSH) { gotNew = true; break }
       await sleep(100)
     }
-    // 超时无新响应 → 已到顶
-    if (lastImChainRespAt <= beforeTs) break
-    // 等 DOM 渲染稳定后再滚
-    await sleep(300)
+
+    if (gotNew) {
+      consecutiveEmpty = 0
+      // 等 DOM 渲染稳定后再滚
+      await sleep(300)
+    } else {
+      consecutiveEmpty++
+      if (consecutiveEmpty < maxConsecutiveEmpty) {
+        // 重试一次：scrollBy 主动上滚一屏，防止首次未触发 load-more
+        container.scrollBy(0, -container.clientHeight)
+        container.dispatchEvent(new Event("scroll", { bubbles: true }))
+        await sleep(500)
+      } else {
+        // 连续 N 次无新响应 → 真正到顶
+        reachedTop = true
+        break
+      }
+    }
   }
-  return { iterations: iter, scrolled: iter > 0 }
+  return { iterations: iter, scrolled: iter > 0, reachedTop }
 }
 
 // ============== DOM 图片补充（完整获取的二次处理）==============
