@@ -69,7 +69,7 @@ CFire Chat Keeper 是一款 Chrome 扩展程序，帮助你批量提取并保存
 
 ### 方法一：从 Release 安装（推荐）
 
-1. 从 [Releases](https://github.com/CFire-Studio/cfire-chat-keeper/releases) 下载最新版本的 `CFire-Chat-Keeper-v0.2.0-chrome.zip`
+1. 从 [Releases](https://github.com/CFire-Studio/cfire-chat-keeper/releases) 下载最新版本的 `cfire-chat-keeper-v1.3.0.zip`
 2. 解压到任意目录
 3. 打开 Chrome 浏览器，访问 `chrome://extensions/`
 4. 开启右上角的"开发者模式"
@@ -126,7 +126,7 @@ npm run build
 1. 打开豆包对话页面
 2. 点击扩展中的"完整获取"按钮
 3. 扩展会自动滚动页面加载完整历史
-4. 滚动完成后刷新对话列表
+4. 滚动完成后对话列表自动刷新，无需手动操作
 
 ## 🎨 界面预览
 
@@ -201,6 +201,13 @@ ai-chat-keeper/
 3. **邮件反馈**：dev@tokenspark.uno
 
 ## 📝 更新日志
+
+### v0.2.1
+
+- 🐛 修复豆包历史对话获取时消息丢失的问题（新增 REPARSE_RAW 兜底恢复机制，从 raw 表重新解析补回因 SW 休眠丢失的消息）
+- 🛡️ scrollUpLoop 健壮性优化：连续 N 次无新响应终止策略、多管触发 load-more（scrollTop + wheel + scrollBy）、scrollHeight 增长辅助信号
+- ✨ 滚动期间 popup 每 2 秒自动刷新对话列表，滚动完成后自动刷新，无需手动点击
+- 🔧 collector 响应增加版本号和错误信息，便于问题排查
 
 ### v0.2.0
 

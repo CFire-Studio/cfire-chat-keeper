@@ -72,7 +72,7 @@ For long conversations on platforms like Doubao, a "Scroll to Retrieve" feature 
 
 ### Method 1: Install from Release (Recommended)
 
-1. Download the latest version `CFire-Chat-Keeper-v0.2.0-chrome.zip` from [Releases](https://github.com/CFire-Studio/cfire-chat-keeper/releases)
+1. Download the latest version `cfire-chat-keeper-v1.3.0.zip` from [Releases](https://github.com/CFire-Studio/cfire-chat-keeper/releases)
 2. Extract it to any directory
 3. Open Chrome and visit `chrome://extensions/`
 4. Enable "Developer mode" in the top right corner
@@ -129,7 +129,7 @@ For long conversations on the Doubao platform:
 1. Open the Doubao conversation page
 2. Click the "Full Retrieve" button in the extension
 3. The extension will automatically scroll the page to load the complete history
-4. Refresh the conversation list after scrolling is complete
+4. The conversation list auto-refreshes after scrolling completes — no manual action needed
 
 ## 🎨 Interface Preview
 
@@ -204,6 +204,13 @@ If you encounter issues or have feature suggestions:
 3. **Email feedback**: dev@tokenspark.uno
 
 ## 📝 Changelog
+
+### v0.2.1
+
+- 🐛 Fixed message loss when retrieving Doubao conversation history (added REPARSE_RAW fallback — re-parses raw table to recover messages lost due to SW hibernation)
+- 🛡️ Improved scrollUpLoop robustness: consecutive-empty termination strategy, multi-trigger load-more (scrollTop + wheel + scrollBy), scrollHeight growth as auxiliary signal
+- ✨ Popup auto-refreshes conversation list every 2s during scrolling, and refreshes on completion — no manual click needed
+- 🔧 Added version tag and error info to collector response for easier debugging
 
 ### v0.2.0
 
