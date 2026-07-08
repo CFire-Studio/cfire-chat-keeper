@@ -13,17 +13,19 @@
 ## 📖 简介
 CFire Chat Keeper 是一款 Chrome 扩展程序，帮助你批量提取并保存与 DeepSeek、ChatGPT、豆包等 AI 助手的对话记录。无论是灵感迸发的创意对话，还是精心调教的 Prompt 工程，都能一键保存到本地，永久守护。所有数据处理均在本地完成，不会上传你的对话内容到任何服务器，无数据泄露风险。
 
+![对话选择](./demo/chat-select.png)
+
 ## ✨ 核心功能
 
 ### 🌐 多平台支持
 
 支持主流 AI 对话平台的对话提取：
 
-| 平台 | 支持状态 | 演示 |
-|------|---------|------|
-| DeepSeek | ✅ 完整支持 | ![DeepSeek 演示](./demo/deepseek-demo.jpg) |
-| ChatGPT | ✅ 完整支持 | ![ChatGPT 演示](./demo/chatgpt-demo.jpg) |
-| 豆包 | ✅ 完整支持 | ![豆包 演示](./demo/doubao-demo.jpg) |
+| 平台 | 支持状态 |
+|------|---------|
+| DeepSeek | ✅ 完整支持 |
+| ChatGPT | ✅ 完整支持 |
+| 豆包 | ✅ 完整支持 |
 
 ### 📥 批量导出
 
@@ -34,9 +36,6 @@ CFire Chat Keeper 是一款 Chrome 扩展程序，帮助你批量提取并保存
 ### 🖼️ 图片提取
 
 自动识别对话中的图片内容，支持选择性下载：
-
-![豆包图片选择](./demo/doubao-image-select.png)
-
 - 展开对话即可查看所有图片
 - 勾选需要保存的图片
 - 图片保存在对话文件夹下的 `images` 子目录
