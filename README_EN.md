@@ -16,17 +16,19 @@ English | [中文](./README.md)
 ## 📖 Introduction
 CFire Chat Keeper is a Chrome extension that helps you batch extract and save conversations from AI assistants like DeepSeek, ChatGPT, and Doubao. Whether it's a creative dialogue sparked by inspiration or a carefully tuned prompt engineering session, you can save them locally with one click and preserve them forever. All data is processed entirely on your device; your conversation content is never uploaded to any server, ensuring zero risk of data leakage.
 
+![Conversation Image Selection](./demo/chat-select-en.png)
+
 ## ✨ Core Features
 
 ### 🌐 Multi-Platform Support
 
 Supports conversation extraction from mainstream AI dialogue platforms:
 
-| Platform | Status | Demo |
-|------|---------|------|
-| DeepSeek | ✅ Fully Supported | ![DeepSeek Demo](./demo/deepseek-demo.jpg) |
-| ChatGPT | ✅ Fully Supported | ![ChatGPT Demo](./demo/chatgpt-demo.jpg) |
-| Doubao | ✅ Fully Supported | ![Doubao Demo](./demo/doubao-demo.jpg) |
+| Platform | Status |
+|------|---------|
+| DeepSeek | ✅ Fully Supported |
+| ChatGPT | ✅ Fully Supported |
+| Doubao | ✅ Fully Supported |
 
 ### 📥 Batch Export
 
@@ -37,9 +39,6 @@ Supports conversation extraction from mainstream AI dialogue platforms:
 ### 🖼️ Image Extraction
 
 Automatically identifies image content in conversations and supports selective downloading:
-
-![Doubao Image Selection](./demo/doubao-image-select.png)
-
 - Expand conversations to view all images
 - Check the images you want to save
 - Images are saved in the `images` subdirectory under the conversation folder
