@@ -12,7 +12,7 @@ const dict: Record<string, Record<Lang, string>> = {
   refreshTitle: { zh: "刷新", en: "Refresh" },
   scrollBtnIdle: { zh: "完整获取", en: "Fetch All" },
   scrollBtnBusy: { zh: "获取中…", en: "Fetching…" },
-  scrollMeta: { zh: "补全当前豆包或 ChatGPT 分享页的长对话完整历史", en: "Capture the full history of the current Doubao or ChatGPT shared conversation" },
+  scrollMeta: { zh: "补全当前豆包或 ChatGPT 的完整历史对话", en: "Capture the full history of the current Doubao or ChatGPT conversation" },
   scrollAlert1: { zh: "请在豆包对话页或 ChatGPT 分享页使用此功能", en: "Please use this feature on a Doubao chat page or ChatGPT shared page" },
   scrollAlert2: { zh: "完整获取失败，请确认当前页已加载扩展", en: "Fetch failed. Please ensure the extension is loaded on the current page" },
   folderLabel: { zh: "文件夹名称", en: "Folder Name" },
