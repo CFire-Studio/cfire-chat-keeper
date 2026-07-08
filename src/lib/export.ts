@@ -2,6 +2,7 @@
 // 拆出此模块仅为让 popup.tsx 专注于 UI/状态，保持单文件 < 400 行。
 import { MSG, send } from "./messaging"
 import { basenameFromUrl } from "./images"
+import { formatMessageTime } from "./time"
 import type { ChatMessage, Conversation } from "./types"
 
 export async function exportConversation(
@@ -62,7 +63,7 @@ export function toMarkdown(c: Conversation, msgs: ChatMessage[]): string {
     c.updatedAt
   ).toISOString()}\n\n---\n\n`
   const body = msgs
-    .map((m) => `### ${m.role}\n\n${m.content}\n`)
+    .map((m) => `### ${m.role} · ${formatMessageTime(m.createdAt)}\n\n${m.content}\n`)
     .join("\n")
   return head + body
 }
