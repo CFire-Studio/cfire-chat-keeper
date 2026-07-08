@@ -59,6 +59,65 @@ function assert(name: string, cond: boolean, extra?: unknown) {
   assert("replace=true（完整快照）", r?.replace === true)
 }
 
+{
+  const body = JSON.stringify({
+    title: "Shared CGPT",
+    current_node: "n4",
+    mapping: {
+      n4: {
+        parent: "n3",
+        message: {
+          id: "m3",
+          author: { role: "assistant" },
+          content: { parts: ["第三条"] },
+          create_time: 1700000003
+        }
+      },
+      n1: {
+        parent: "root",
+        message: {
+          id: "hidden-system",
+          author: { role: "system" },
+          content: { parts: [""] },
+          metadata: { is_visually_hidden_from_conversation: true }
+        }
+      },
+      n3: {
+        parent: "n2",
+        message: {
+          id: "m2",
+          author: { role: "user" },
+          content: { parts: ["第二条"] },
+          create_time: 1700000002
+        }
+      },
+      root: { children: ["n1"] },
+      n2: {
+        parent: "n1",
+        message: {
+          id: "m1",
+          author: { role: "assistant" },
+          content: { parts: ["第一条"] },
+          create_time: 1700000001
+        }
+      }
+    }
+  })
+  const ev: IngestEvent = {
+    source: "dom",
+    site: "chatgpt",
+    url: "https://chatgpt.com/share/share-123",
+    status: 200,
+    body,
+    capturedAt: Date.now()
+  }
+  const r = parseEvent(ev)
+  console.log("[ChatGPT share mapping]")
+  assert("按 current_node 链路排序", r?.messages.map((m) => m.content).join(",") === "第一条,第二条,第三条")
+  assert("过滤隐藏 system", r?.messages.every((m) => m.role !== "system") === true)
+  assert("turnId 不重复", new Set(r?.messages.map((m) => m.turnId)).size === r?.messages.length)
+}
+
 // --- ChatGPT: SSE 流（增量） ---
 {
   const sse = [

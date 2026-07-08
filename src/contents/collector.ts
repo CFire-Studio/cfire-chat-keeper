@@ -32,6 +32,9 @@ const site = matchSite(location.hostname)
 if (site) {
   bindPostMessage(site.id)
   scheduleDomFallback(site.id, site.isSharePage(location.pathname))
+  if (site.id === "chatgpt" && site.isSharePage(location.pathname)) {
+    scheduleChatgptShareAutoCollect()
+  }
   if (site.id === "doubao" && !site.isSharePage(location.pathname)) {
     scheduleSidebarTitleScrape()
   }
@@ -45,6 +48,12 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type !== MSG.SCROLL_UP) return false // 非目标消息不处理，避免干扰 background
   ;(async () => {
     try {
+      if (site?.id === "chatgpt" && site.isSharePage(location.pathname)) {
+        collectChatgptShareSnapshot(true)
+        await sleep(1200)
+        sendResponse({ iterations: 1, scrolled: false, reachedTop: true, site: "chatgpt", __collectorVersion: "v2-2026-07-07" })
+        return
+      }
       const result = await scrollUpLoop()
       // 二次处理：滚动加载完成后，从 DOM 抓取 AI 生成图片。
       // 豆包虚拟滚动下只有可见消息在 DOM 中，滚到底部确保对话末尾的图片被渲染。
@@ -54,7 +63,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
         // 部分 PARSED 消息可能因 SW 休眠/消息丢失未处理。
         // 从 raw 表重新解析所有 /im/chain/single 响应，补回丢失的消息。
         try {
-          await send(MSG.REPARSE_RAW, { site: "doubao" })
+          const convId = matchSite(location.hostname)?.pickConversationId(location.pathname)
+          if (convId) await send(MSG.REPARSE_RAW, { site: "doubao", convId: `doubao:${convId}` })
         } catch {
           // SW 不可达时忽略，raw 表数据仍保留供下次恢复
         }
@@ -66,6 +76,16 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   })()
   return true // 异步响应
 })
+
+function scheduleChatgptShareAutoCollect(): void {
+  ;[800, 2000, 5000, 9000].forEach((delay) => {
+    setTimeout(() => collectChatgptShareSnapshot(true), delay)
+  })
+}
+
+function collectChatgptShareSnapshot(force = false): void {
+  window.postMessage({ __tag: "ACK_COLLECT_CHATGPT_SHARE", force }, "*")
+}
 
 function bindPostMessage(siteId: SiteId) {
   window.addEventListener("message", (ev) => {

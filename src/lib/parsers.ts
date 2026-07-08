@@ -189,6 +189,14 @@ interface CgMessage {
   content?: { parts?: unknown[] }
   attachments?: CgAttachment[]
   create_time?: number
+  metadata?: { is_visually_hidden_from_conversation?: boolean }
+}
+
+interface CgMappingNode {
+  id?: string
+  message?: CgMessage
+  parent?: string
+  children?: string[]
 }
 
 function parseChatgpt(ev: IngestEvent): ParsedPayload | null {
@@ -197,12 +205,13 @@ function parseChatgpt(ev: IngestEvent): ParsedPayload | null {
 
   // 情况 1：GET /backend-api/conversation/<id> 返回 mapping
   const json = safeJson(ev.body) as
-    | { mapping?: Record<string, { message?: CgMessage }>; title?: string }
+    | { mapping?: Record<string, CgMappingNode>; current_node?: string; title?: string }
     | null
   if (json && json.mapping) {
-    for (const node of Object.values(json.mapping)) {
+    for (const node of orderedChatgptNodes(json.mapping, json.current_node)) {
       const m = node?.message
       if (!m) continue
+      if (m.metadata?.is_visually_hidden_from_conversation) continue
       const parts = m.content?.parts ?? []
       const text = parts
         .map((p) => (typeof p === "string" ? p : ""))
@@ -260,6 +269,22 @@ function parseChatgpt(ev: IngestEvent): ParsedPayload | null {
     messages,
     replace: isFullSnapshot
   }
+}
+
+function orderedChatgptNodes(
+  mapping: Record<string, CgMappingNode>,
+  currentNode?: string
+): CgMappingNode[] {
+  const seen = new Set<string>()
+  const ordered: CgMappingNode[] = []
+  let id = currentNode
+  while (id && mapping[id] && !seen.has(id)) {
+    seen.add(id)
+    ordered.push(mapping[id])
+    id = mapping[id].parent
+  }
+  if (ordered.length > 0) return ordered.reverse()
+  return Object.values(mapping)
 }
 
 // ============== 豆包 ==============

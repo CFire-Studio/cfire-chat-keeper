@@ -29,6 +29,9 @@ export const config: PlasmoCSConfig = {
 const site = matchSite(location.hostname)
 if (site) {
   installHook(site.capturePatterns)
+  if (site.id === "chatgpt" && site.isSharePage(location.pathname)) {
+    scheduleChatgptShareSnapshot()
+  }
 }
 
 function installHook(patterns: string[]) {
@@ -156,4 +159,44 @@ function installHook(patterns: string[]) {
     XHR.open = currentOpen
   }
   XHR.send = hookedSend
+}
+
+function scheduleChatgptShareSnapshot() {
+  const w = window as any
+  const timers = [500, 1500, 3000, 6000]
+  timers.forEach((delay) => setTimeout(postChatgptShareSnapshot, delay))
+  window.addEventListener("message", (ev) => {
+    if (ev.data?.__tag === "ACK_COLLECT_CHATGPT_SHARE") {
+      postChatgptShareSnapshot(!!ev.data.force)
+    }
+  })
+
+  function postChatgptShareSnapshot(force = false) {
+    const data = pickChatgptShareConversation(w)
+    if (!data?.mapping || typeof data.mapping !== "object") return
+    const mappingCount = Object.keys(data.mapping).length
+    const signature = `${data.conversation_id ?? location.pathname}:${mappingCount}:${data.current_node ?? ""}`
+    if (!force && w.__ACK_CHATGPT_SHARE_SIGNATURE__ === signature) return
+    w.__ACK_CHATGPT_SHARE_SIGNATURE__ = signature
+    window.postMessage(
+      {
+        __tag: "ACK_NET",
+        source: "dom",
+        url: location.href,
+        status: 200,
+        body: JSON.stringify(data)
+      },
+      "*"
+    )
+  }
+}
+
+function pickChatgptShareConversation(w: any): any | null {
+  const loaderData = w.__reactRouterContext?.state?.loaderData
+  if (!loaderData || typeof loaderData !== "object") return null
+  for (const value of Object.values(loaderData)) {
+    const data = (value as any)?.serverResponse?.data
+    if (data?.mapping && typeof data.mapping === "object") return data
+  }
+  return null
 }

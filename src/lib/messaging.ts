@@ -30,7 +30,7 @@ export type ReqMap = {
   [MSG.DELETE_CONV]: { payload: { id: string }; reply: { ok: boolean } }
   [MSG.SEARCH_CONVERSATIONS]: { payload: { keyword: string }; reply: Conversation[] }
   [MSG.UPDATE_TITLE]: { payload: { id: string; title: string }; reply: { ok: boolean } }
-  [MSG.REPARSE_RAW]: { payload: { site: SiteId }; reply: { ok: boolean; reprocessed: number } }
+  [MSG.REPARSE_RAW]: { payload: { site: SiteId; convId: string }; reply: { ok: boolean; reprocessed: number } }
 }
 
 export function send<K extends keyof ReqMap>(
