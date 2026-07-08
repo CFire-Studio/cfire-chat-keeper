@@ -93,6 +93,21 @@ export async function clearMessages(convId: string): Promise<void> {
   })
 }
 
+// 删除指定 conversation 中 turnId 在给定列表中的 messages
+// 用于跨事件去重：DOM 图片采集的消息可能与 API 快照消息内容重复
+export async function deleteMessagesByTurnIds(
+  convId: string,
+  turnIds: string[]
+): Promise<void> {
+  if (turnIds.length === 0) return
+  await tx("messages", "readwrite", (t) => {
+    const store = t.objectStore("messages")
+    for (const tid of turnIds) {
+      store.delete([convId, tid])
+    }
+  })
+}
+
 export async function saveRaw(r: RawPayload): Promise<void> {
   await tx("raw", "readwrite", (t) => {
     t.objectStore("raw").put(r)
@@ -158,15 +173,14 @@ export async function getMessages(convId: string): Promise<ChatMessage[]> {
     const list = await reqAsPromise(
       idx.getAll(IDBKeyRange.only(convId)) as IDBRequest<ChatMessage[]>
     )
-    return list.sort((a, b) => a.createdAt - b.createdAt)
+    return list
+      .filter((m) => !(convId.startsWith("doubao:") && m.turnId === "dom-images"))
+      .sort((a, b) => a.createdAt - b.createdAt)
   })
 }
 
 export async function countMessages(convId: string): Promise<number> {
-  return tx("messages", "readonly", async (t) => {
-    const idx = t.objectStore("messages").index("convId")
-    return reqAsPromise(idx.count(IDBKeyRange.only(convId)) as IDBRequest<number>)
-  })
+  return (await getMessages(convId)).length
 }
 
 // 统计对话内去重图片 URL 数量（用于角标总数和 Conversation.imageCount）

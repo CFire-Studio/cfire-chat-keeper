@@ -202,6 +202,16 @@ ai-chat-keeper/
 
 ## 📝 更新日志
 
+### v0.2.4
+
+- 🐛 修复 ChatGPT 导出对话内容重复：mapping 树中编辑/重试分支和前端重建的 client-created 节点会产生重复内容，新增 `deduplicateChatgptMessages` 按 role + 纯文本去重，保留信息量最大的那条（有原始时间 > 图片数多 > 文本更长）
+
+### v0.2.3
+
+- 🐛 修复 ChatGPT 导出消息时间戳重复异常：移除 `getChatgptMessageTime` 对 `metadata.timestamp_` / `finished_at` / `completed_at` / `update_time` / `updated_at` 等事件时间字段的回退，避免前端 client-created 节点共享时间被误当作消息时间
+- ✨ 重写 `fillMissingChatgptMessageTimes` 为分组递增算法：连续缺失时间的消息组内按位置递增 1 秒，尾部缺失用 `max(fallback, previous+1s)` 起步（不再退回过去时间），保证时间戳单调不重复
+- 🎯 导出时对无原始时间的消息（client-created 节点）留空时间，不再显示不可靠的 fallback 时间——空比错误好
+
 ### v0.2.2
 
 - ✨ 支持 ChatGPT 分享页完整获取，自动读取页面内分享快照并补全历史消息

@@ -25,6 +25,7 @@ export interface Conversation {
   title: string
   url: string
   isShare: boolean
+  createdAt?: number
   updatedAt: number
   messageCount: number
   imageCount?: number     // 去重图片数（background 在 PARSED 后统计）
