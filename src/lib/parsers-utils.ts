@@ -53,7 +53,8 @@ export function buildConv(
   convId: string,
   url: string,
   count: number,
-  isShare = false
+  isShare = false,
+  createdAt?: number
 ): Conversation {
   return {
     id: makeId(site, convId),
@@ -62,6 +63,7 @@ export function buildConv(
     title: `${site} ${convId}`,
     url,
     isShare: isShare || /\/share\/|\/thread\//.test(url),
+    createdAt,
     updatedAt: nowMs(),
     messageCount: count,
     schemaVersion: 1
@@ -138,6 +140,13 @@ export function getPath(obj: unknown, path: string): unknown {
 }
 
 // 秒级时间戳兼容：< 1e12 视为秒
-export function tsToMs(v: number): number {
-  return v < 1e12 ? v * 1000 : v
+export function tsToMs(v: string | number | null | undefined, fallback = nowMs()): number {
+  if (typeof v === "string" && v.trim()) {
+    const parsed = Date.parse(v)
+    if (Number.isFinite(parsed)) return parsed
+    const n = Number(v)
+    if (Number.isFinite(n)) return n < 1e12 ? n * 1000 : n
+  }
+  if (typeof v === "number" && Number.isFinite(v)) return v < 1e12 ? v * 1000 : v
+  return fallback
 }

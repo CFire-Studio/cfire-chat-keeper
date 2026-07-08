@@ -59,11 +59,16 @@ export function withSaveDir(saveDir: string, filename: string): string {
 }
 
 export function toMarkdown(c: Conversation, msgs: ChatMessage[]): string {
-  const head = `# ${c.title}\n\n- site: ${c.site}\n- url: ${c.url}\n- updatedAt: ${new Date(
-    c.updatedAt
+  const createdAt = c.createdAt ?? msgs[0]?.createdAt ?? c.updatedAt
+  const head = `# ${c.title}\n\n- site: ${c.site}\n- url: ${c.url}\n- createdAt: ${new Date(
+    createdAt
   ).toISOString()}\n\n---\n\n`
   const body = msgs
-    .map((m) => `### ${m.role} · ${formatMessageTime(m.createdAt)}\n\n${m.content}\n`)
+    .map((m) => {
+      const hasOriginalTime = m.meta?.hasOriginalTime !== false
+      const time = hasOriginalTime ? formatMessageTime(m.createdAt) : ""
+      return `### ${m.role}${time ? " · " + time : ""}\n\n${m.content}\n`
+    })
     .join("\n")
   return head + body
 }

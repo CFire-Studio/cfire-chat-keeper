@@ -3,7 +3,7 @@
 import * as fs from "node:fs"
 import * as path from "node:path"
 import { parseEvent, buildFromDom } from "../src/lib/parsers"
-import { isDoubaoGeneratedImage, filterDoubaoGeneratedImages, stripDoubaoNonGenImageMarkdown } from "../src/lib/images"
+import { isDoubaoGeneratedImage, filterDoubaoGeneratedImages, stripDoubaoNonGenImageMarkdown, extractChatgptAssetImages, basenameFromUrl } from "../src/lib/images"
 import type { IngestEvent } from "../src/lib/types"
 
 let pass = 0
@@ -16,6 +16,15 @@ function assert(name: string, cond: boolean, extra?: unknown) {
     fail++
     console.log("  FAIL", name, extra ?? "")
   }
+}
+
+// --- 图片文件名后缀 ---
+{
+  console.log("[图片文件名后缀]")
+  assert("ChatGPT files download 补 png", basenameFromUrl("https://chatgpt.com/backend-api/files/file-abc/download", 0) === "001-file-abc.png")
+  assert("ChatGPT estuary content 使用 id 补 png", basenameFromUrl("https://chatgpt.com/backend-api/estuary/content?id=img-123", 1) === "002-img-123.png")
+  assert("已有 jpg 后缀保持", basenameFromUrl("https://example.com/path/photo.jpg?x=1", 2) === "003-photo.jpg")
+  assert("format=webp 补 webp", basenameFromUrl("https://example.com/image?id=abc&format=webp", 3) === "004-abc.webp")
 }
 
 // --- ChatGPT: mapping JSON ---
@@ -118,6 +127,134 @@ function assert(name: string, cond: boolean, extra?: unknown) {
   assert("turnId 不重复", new Set(r?.messages.map((m) => m.turnId)).size === r?.messages.length)
 }
 
+{
+  const body = JSON.stringify({
+    title: "Partial time CGPT",
+    current_node: "n3",
+    mapping: {
+      n1: {
+        message: {
+          id: "m1",
+          author: { role: "user" },
+          content: { parts: ["较早消息"] },
+          create_time: 1700000100
+        }
+      },
+      n2: {
+        parent: "n1",
+        message: {
+          id: "m2",
+          author: { role: "assistant" },
+          content: { parts: ["最近回复"] }
+        }
+      },
+      n3: {
+        parent: "n2",
+        message: {
+          id: "m3",
+          author: { role: "user" },
+          content: { parts: ["最近追问"] }
+        }
+      }
+    }
+  })
+  const ev: IngestEvent = {
+    source: "dom",
+    site: "chatgpt",
+    url: "https://chatgpt.com/c/partial-time",
+    status: 200,
+    body,
+    capturedAt: 1800000000000
+  }
+  const r = parseEvent(ev)
+  console.log("[ChatGPT partial time mapping]")
+  assert("缺失尾部时间留空", r?.messages.map((m) => m.createdAt).join(",") === "1700000100000,0,0")
+  assert("缺失尾部时间标记为非原始时间", r?.messages.slice(1).every((m) => m.meta?.hasOriginalTime === false) === true)
+}
+
+{
+  const body = JSON.stringify({
+    title: "Metadata time CGPT",
+    current_node: "n2",
+    mapping: {
+      n1: {
+        message: {
+          id: "m1",
+          author: { role: "user" },
+          content: { parts: ["带 metadata 时间的用户消息"] },
+          metadata: { create_time: "2026-07-01T08:14:25.000Z" }
+        }
+      },
+      n2: {
+        parent: "n1",
+        message: {
+          id: "m2",
+          author: { role: "assistant" },
+          content: { parts: ["带 metadata 时间的助手消息"] },
+          metadata: { message_create_time: 1782893666 }
+        }
+      }
+    }
+  })
+  const ev: IngestEvent = {
+    source: "dom",
+    site: "chatgpt",
+    url: "https://chatgpt.com/c/metadata-time",
+    status: 200,
+    body,
+    capturedAt: 1783498466000
+  }
+  const r = parseEvent(ev)
+  console.log("[ChatGPT metadata time mapping]")
+  assert("metadata.create_time 优先于下载时间", r?.messages[0].createdAt === Date.parse("2026-07-01T08:14:25.000Z"))
+  assert("metadata.message_create_time 秒级时间戳解析", r?.messages[1].createdAt === 1782893666000)
+}
+
+{
+  const body = JSON.stringify({
+    title: "Image only CGPT",
+    create_time: "2026-07-01T04:28:13.743Z",
+    current_node: "n2",
+    mapping: {
+      n1: {
+        message: {
+          id: "m1",
+          author: { role: "assistant" },
+          content: {
+            parts: [
+              {
+                content_type: "image_asset_pointer",
+                asset_pointer: "file-service://file-imageonly"
+              }
+            ]
+          }
+        }
+      },
+      n2: {
+        parent: "n1",
+        message: {
+          id: "m2",
+          author: { role: "assistant" },
+          content: { parts: ["图片生成完成"] }
+        }
+      }
+    }
+  })
+  const ev: IngestEvent = {
+    source: "dom",
+    site: "chatgpt",
+    url: "https://chatgpt.com/c/image-only-time",
+    status: 200,
+    body,
+    capturedAt: 1783499140000
+  }
+  const r = parseEvent(ev)
+  console.log("[ChatGPT image-only fallback time]")
+  const fallbackTs = Date.parse("2026-07-01T04:28:13.743Z")
+  assert("全量缺消息时间时消息时间留空", r?.messages.map((m) => m.createdAt).join(",") === "0,0")
+  assert("全量缺消息时间时对话时间仍使用会话原始时间", r?.conversation.createdAt === fallbackTs)
+}
+
 // --- ChatGPT: SSE 流（增量） ---
 {
   const sse = [
@@ -138,6 +275,8 @@ function assert(name: string, cond: boolean, extra?: unknown) {
   assert("解析出 1 条", r?.messages.length === 1)
   assert("内容=Hello world", r?.messages[0].content === "Hello world")
   assert("turnId=msg-x", r?.messages[0].turnId === "msg-x")
+  assert("无原始时间的 SSE 消息时间留空", r?.messages[0].createdAt === 0)
+  assert("无原始时间的 SSE 消息标记为非原始时间", r?.messages[0].meta?.hasOriginalTime === false)
   assert("replace=false（流式增量）", r?.replace !== true)
 }
 
@@ -638,6 +777,70 @@ function assert(name: string, cond: boolean, extra?: unknown) {
   assert("用户消息含附件图片", (userMsg?.images?.length ?? 0) === 1)
   assert("附件图片 URL 为 download 接口",
     userMsg?.images?.[0].url === "https://chatgpt.com/backend-api/files/file-img-upload/download")
+}
+
+// --- ChatGPT: 嵌套图片数据结构 ---
+{
+  const imgs = extractChatgptAssetImages([
+    {
+      content_type: "multimodal_text",
+      metadata: {
+        generation: {
+          images: [
+            { url: "https://chatgpt.com/backend-api/estuary/content?id=img-123" },
+            { asset_pointer: "file-service://file-nested123" }
+          ]
+        }
+      }
+    }
+  ])
+  console.log("[ChatGPT nested images]")
+  assert("识别嵌套 estuary 图片 URL", imgs.some((img) => img.url === "https://chatgpt.com/backend-api/estuary/content?id=img-123"))
+  assert("识别嵌套 file-service 指针", imgs.some((img) => img.url === "https://chatgpt.com/backend-api/files/file-nested123/download"))
+}
+
+// --- ChatGPT: 未分享页面历史快照的字符串时间戳 ---
+{
+  const body = JSON.stringify({
+    title: "Private CGPT",
+    conversation_id: "private-123",
+    current_node: "n2",
+    mapping: {
+      n1: {
+        parent: "root",
+        message: {
+          id: "m1",
+          author: { role: "user" },
+          content: { parts: ["第一条"] },
+          create_time: "2026-07-08T01:02:03.000Z"
+        }
+      },
+      n2: {
+        parent: "n1",
+        message: {
+          id: "m2",
+          author: { role: "assistant" },
+          content: { parts: ["第二条"] },
+          create_time: "1783490000"
+        }
+      },
+      root: { children: ["n1"] }
+    }
+  })
+  const ev: IngestEvent = {
+    source: "dom",
+    site: "chatgpt",
+    url: "https://chatgpt.com/c/private-123",
+    status: 200,
+    body,
+    capturedAt: 1999999999999
+  }
+  const r = parseEvent(ev)
+  console.log("[ChatGPT private snapshot 时间戳]")
+  assert("未分享 /c/ 会话 ID 正确", r?.conversation.conversationId === "private-123")
+  assert("对话创建时间取第一条消息时间", r?.conversation.createdAt === Date.parse("2026-07-08T01:02:03.000Z"))
+  assert("ISO 时间戳解析为毫秒", r?.messages[0].createdAt === Date.parse("2026-07-08T01:02:03.000Z"))
+  assert("字符串秒级时间戳解析为毫秒", r?.messages[1].createdAt === 1783490000000)
 }
 
 // --- 豆包: 同一图片的 URL 变体按 hex 去重 ---

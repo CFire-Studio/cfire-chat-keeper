@@ -29,8 +29,8 @@ export const config: PlasmoCSConfig = {
 const site = matchSite(location.hostname)
 if (site) {
   installHook(site.capturePatterns)
-  if (site.id === "chatgpt" && site.isSharePage(location.pathname)) {
-    scheduleChatgptShareSnapshot()
+  if (site.id === "chatgpt") {
+    scheduleChatgptSnapshot(site.isSharePage(location.pathname))
   }
 }
 
@@ -161,23 +161,26 @@ function installHook(patterns: string[]) {
   XHR.send = hookedSend
 }
 
-function scheduleChatgptShareSnapshot() {
+function scheduleChatgptSnapshot(isShare: boolean) {
   const w = window as any
   const timers = [500, 1500, 3000, 6000]
-  timers.forEach((delay) => setTimeout(postChatgptShareSnapshot, delay))
+  timers.forEach((delay) => setTimeout(() => postChatgptSnapshot(false), delay))
   window.addEventListener("message", (ev) => {
-    if (ev.data?.__tag === "ACK_COLLECT_CHATGPT_SHARE") {
-      postChatgptShareSnapshot(!!ev.data.force)
+    if (ev.data?.__tag === "ACK_COLLECT_CHATGPT_SNAPSHOT") {
+      postChatgptSnapshot(!!ev.data.force)
     }
   })
 
-  function postChatgptShareSnapshot(force = false) {
-    const data = pickChatgptShareConversation(w)
+  async function postChatgptSnapshot(force = false) {
+    if (!isShare && !isChatgptConversationPath(location.pathname)) return
+    const data = isShare
+      ? pickChatgptLoaderConversation(w)
+      : pickChatgptAppConversation(w) ?? await fetchChatgptConversation()
     if (!data?.mapping || typeof data.mapping !== "object") return
     const mappingCount = Object.keys(data.mapping).length
     const signature = `${data.conversation_id ?? location.pathname}:${mappingCount}:${data.current_node ?? ""}`
-    if (!force && w.__ACK_CHATGPT_SHARE_SIGNATURE__ === signature) return
-    w.__ACK_CHATGPT_SHARE_SIGNATURE__ = signature
+    if (!force && w.__ACK_CHATGPT_SNAPSHOT_SIGNATURE__ === signature) return
+    w.__ACK_CHATGPT_SNAPSHOT_SIGNATURE__ = signature
     window.postMessage(
       {
         __tag: "ACK_NET",
@@ -191,7 +194,7 @@ function scheduleChatgptShareSnapshot() {
   }
 }
 
-function pickChatgptShareConversation(w: any): any | null {
+function pickChatgptLoaderConversation(w: any): any | null {
   const loaderData = w.__reactRouterContext?.state?.loaderData
   if (!loaderData || typeof loaderData !== "object") return null
   for (const value of Object.values(loaderData)) {
@@ -199,4 +202,48 @@ function pickChatgptShareConversation(w: any): any | null {
     if (data?.mapping && typeof data.mapping === "object") return data
   }
   return null
+}
+
+function pickChatgptAppConversation(w: any): any | null {
+  const convId = location.pathname.match(/\/c\/([^/?#]+)/)?.[1]
+  const root = w.__remixContext ?? w.__reactRouterContext
+  const found = findChatgptConversation(root, convId)
+  if (found) return found
+  return null
+}
+
+async function fetchChatgptConversation(): Promise<any | null> {
+  const convId = location.pathname.match(/\/c\/([^/?#]+)/)?.[1]
+  if (!convId) return null
+  try {
+    const res = await fetch(`${location.origin}/backend-api/conversation/${convId}`, {
+      credentials: "include",
+      cache: "no-store"
+    })
+    if (!res.ok) return null
+    const data = await res.json()
+    if (data?.mapping && typeof data.mapping === "object") return data
+  } catch {
+    return null
+  }
+  return null
+}
+
+function findChatgptConversation(value: unknown, convId?: string, seen = new Set<unknown>()): any | null {
+  if (!value || typeof value !== "object" || seen.has(value)) return null
+  seen.add(value)
+  const obj = value as Record<string, unknown>
+  if (obj.mapping && typeof obj.mapping === "object") {
+    const id = obj.conversation_id ?? obj.conversationId ?? obj.id
+    if (!convId || !id || id === convId) return obj
+  }
+  for (const child of Object.values(obj)) {
+    const found = findChatgptConversation(child, convId, seen)
+    if (found) return found
+  }
+  return null
+}
+
+function isChatgptConversationPath(pathname: string): boolean {
+  return /^\/c\/[^/?#]+/.test(pathname)
 }

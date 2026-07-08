@@ -17,6 +17,7 @@ import {
 } from "./images"
 import {
   buildConv,
+  getPath,
   hash,
   nowMs,
   pickArray,
@@ -188,8 +189,12 @@ interface CgMessage {
   author?: { role?: string }
   content?: { parts?: unknown[] }
   attachments?: CgAttachment[]
-  create_time?: number
-  metadata?: { is_visually_hidden_from_conversation?: boolean }
+  create_time?: string | number
+  update_time?: string | number
+  createTime?: string | number
+  created_at?: string | number
+  createdAt?: string | number
+  metadata?: Record<string, unknown> & { is_visually_hidden_from_conversation?: boolean }
 }
 
 interface CgMappingNode {
@@ -199,13 +204,26 @@ interface CgMappingNode {
   children?: string[]
 }
 
+interface ChatgptParsedMessage extends ChatMessage {
+  hasOriginalTime: boolean
+}
+
 function parseChatgpt(ev: IngestEvent): ParsedPayload | null {
   const convId = pickConvIdFromUrl(ev.url, ev.site) ?? "unknown"
-  const messages: ChatMessage[] = []
+  const messages: ChatgptParsedMessage[] = []
 
   // 情况 1：GET /backend-api/conversation/<id> 返回 mapping
   const json = safeJson(ev.body) as
-    | { mapping?: Record<string, CgMappingNode>; current_node?: string; title?: string }
+    | {
+        mapping?: Record<string, CgMappingNode>
+        current_node?: string
+        title?: string
+        create_time?: string | number
+        created_at?: string | number
+        createTime?: string | number
+        createdAt?: string | number
+        update_time?: string | number
+      }
     | null
   if (json && json.mapping) {
     for (const node of orderedChatgptNodes(json.mapping, json.current_node)) {
@@ -230,14 +248,17 @@ function parseChatgpt(ev: IngestEvent): ParsedPayload | null {
         .map((img) => `![${img.alt ?? "image"}](${img.url})`)
         .join("\n")
       const content = text && imgMd ? `${text}\n\n${imgMd}` : text || imgMd
+      const messageTime = getChatgptMessageTime(m)
       messages.push({
         turnId: String(m.id ?? hash(content)),
         role: toRole(m.author?.role),
         content,
-        createdAt: tsToMs(m.create_time ?? nowMs() / 1000),
-        images
+        createdAt: messageTime ?? 0,
+        images,
+        hasOriginalTime: messageTime !== undefined
       })
     }
+    deduplicateChatgptMessages(messages)
   } else {
     // 情况 2：POST /backend-api/conversation SSE 流
     const events = splitSse(ev.body)
@@ -251,11 +272,12 @@ function parseChatgpt(ev: IngestEvent): ParsedPayload | null {
     }
     if (assistant) {
       messages.push({
-        turnId: lastId ?? hash(assistant + ev.capturedAt),
+        turnId: lastId ?? hash(assistant),
         role: "assistant",
         content: assistant,
-        createdAt: ev.capturedAt,
-        images: pickImages(assistant)
+        createdAt: 0,
+        images: pickImages(assistant),
+        hasOriginalTime: false
       })
     }
   }
@@ -264,10 +286,126 @@ function parseChatgpt(ev: IngestEvent): ParsedPayload | null {
   const title =
     (json && typeof json.title === "string" && json.title) || `chatgpt ${convId}`
   const isFullSnapshot = !!(json && json.mapping)
+  const createdAt = isFullSnapshot
+    ? getChatgptConversationTime(json, messages)
+    : messages.find((m) => m.hasOriginalTime && m.createdAt > 0)?.createdAt
   return {
-    conversation: { ...buildConv(ev.site, convId, ev.url, messages.length), title },
-    messages,
+    conversation: {
+      ...buildConv(ev.site, convId, ev.url, messages.length, false, createdAt),
+      title
+    },
+    messages: messages.map(({ hasOriginalTime, ...m }) => ({
+      ...m,
+      meta: { ...(m.meta ?? {}), hasOriginalTime }
+    })),
     replace: isFullSnapshot
+  }
+}
+
+function getChatgptConversationTime(
+  json: {
+    create_time?: string | number
+    created_at?: string | number
+    createTime?: string | number
+    createdAt?: string | number
+    update_time?: string | number
+  } | null,
+  messages: ChatMessage[]
+): number | undefined {
+  const fromJson = getChatgptPayloadTime(json)
+  if (Number.isFinite(fromJson)) return fromJson
+  const firstMessageAt = messages.find((m) => Number.isFinite(m.createdAt) && m.createdAt > 0)?.createdAt
+  return firstMessageAt
+}
+
+function getChatgptPayloadTime(
+  json: {
+    create_time?: string | number
+    created_at?: string | number
+    createTime?: string | number
+    createdAt?: string | number
+    update_time?: string | number
+  } | null
+): number | undefined {
+  return pickTimestamp(json, [
+    "create_time",
+    "createTime",
+    "created_at",
+    "createdAt",
+    "update_time"
+  ])
+}
+
+// 字段优先级：消息顶层时间最可靠；metadata 内仅信任明确为「创建时间」的字段。
+// 移除 metadata.timestamp_ / finished_at / completed_at / update_time / updated_at 等
+// 事件时间字段——它们在 client-created 节点（前端未持久化消息）中是前端注入的共享值，
+// 同一时刻创建的多条消息会共享相同时间戳，无法反映对话顺序。
+function getChatgptMessageTime(m: CgMessage): number | undefined {
+  return pickTimestamp(m, [
+    "create_time",
+    "createTime",
+    "created_at",
+    "createdAt",
+    "update_time",
+    "metadata.create_time",
+    "metadata.createTime",
+    "metadata.created_at",
+    "metadata.createdAt",
+    "metadata.message_create_time",
+    "metadata.messageCreateTime"
+  ])
+}
+
+function pickTimestamp(obj: unknown, paths: string[]): number | undefined {
+  for (const path of paths) {
+    const value = getPath(obj, path)
+    if (typeof value !== "string" && typeof value !== "number") continue
+    const parsed = tsToMs(value, NaN)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return undefined
+}
+
+function deduplicateChatgptMessages(messages: ChatgptParsedMessage[]): void {
+  const seen = new Map<string, number>() // key → index
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i]
+    const textOnly = m.content.replace(/!\[[^\]]*\]\([^)]*\)/g, "").trim()
+    const key = `${m.role}:${textOnly}`
+    if (!textOnly) {
+      // 纯图片消息（如 DALL·E 生成结果）不去重，按 turnId 去重即可
+      const idKey = `${m.role}:img:${m.turnId}`
+      if (seen.has(idKey)) {
+        messages.splice(i, 1)
+        i--
+      } else {
+        seen.set(idKey, i)
+      }
+      continue
+    }
+    const prevIdx = seen.get(key)
+    if (prevIdx === undefined) {
+      seen.set(key, i)
+      continue
+    }
+    const prev = messages[prevIdx]
+    // 判断哪条保留：有原始时间 > 图片数 > 文本长度
+    const prevScore =
+      (prev.hasOriginalTime ? 1000 : 0) +
+      (prev.images?.length ?? 0) * 10 +
+      prev.content.length
+    const curScore =
+      (m.hasOriginalTime ? 1000 : 0) +
+      (m.images?.length ?? 0) * 10 +
+      m.content.length
+    if (curScore > prevScore) {
+      messages.splice(prevIdx, 1)
+      seen.set(key, i)
+      i-- // 修正索引
+    } else {
+      messages.splice(i, 1)
+      i--
+    }
   }
 }
 

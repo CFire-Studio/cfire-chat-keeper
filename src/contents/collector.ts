@@ -32,8 +32,8 @@ const site = matchSite(location.hostname)
 if (site) {
   bindPostMessage(site.id)
   scheduleDomFallback(site.id, site.isSharePage(location.pathname))
-  if (site.id === "chatgpt" && site.isSharePage(location.pathname)) {
-    scheduleChatgptShareAutoCollect()
+  if (site.id === "chatgpt") {
+    scheduleChatgptAutoCollect()
   }
   if (site.id === "doubao" && !site.isSharePage(location.pathname)) {
     scheduleSidebarTitleScrape()
@@ -48,10 +48,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type !== MSG.SCROLL_UP) return false // 非目标消息不处理，避免干扰 background
   ;(async () => {
     try {
-      if (site?.id === "chatgpt" && site.isSharePage(location.pathname)) {
-        collectChatgptShareSnapshot(true)
+      if (site?.id === "chatgpt") {
+        collectChatgptSnapshot(true)
         await sleep(1200)
-        sendResponse({ iterations: 1, scrolled: false, reachedTop: true, site: "chatgpt", __collectorVersion: "v2-2026-07-07" })
+        sendResponse({ iterations: 1, scrolled: false, reachedTop: true, site: "chatgpt", __collectorVersion: "v2-2026-07-08" })
         return
       }
       const result = await scrollUpLoop()
@@ -77,14 +77,14 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   return true // 异步响应
 })
 
-function scheduleChatgptShareAutoCollect(): void {
+function scheduleChatgptAutoCollect(): void {
   ;[800, 2000, 5000, 9000].forEach((delay) => {
-    setTimeout(() => collectChatgptShareSnapshot(true), delay)
+    setTimeout(() => collectChatgptSnapshot(true), delay)
   })
 }
 
-function collectChatgptShareSnapshot(force = false): void {
-  window.postMessage({ __tag: "ACK_COLLECT_CHATGPT_SHARE", force }, "*")
+function collectChatgptSnapshot(force = false): void {
+  window.postMessage({ __tag: "ACK_COLLECT_CHATGPT_SNAPSHOT", force }, "*")
 }
 
 function bindPostMessage(siteId: SiteId) {
@@ -340,6 +340,10 @@ function collectDom(siteId: SiteId, isShare: boolean) {
   // 豆包消息列表是虚拟滚动的，DOM 只含可见消息；非分享页依赖 /im/chain/single API，
   // DOM 兜底会以 replace=true 覆盖完整数据，因此跳过
   if (siteId === "doubao" && !isShare) return
+  if (siteId === "chatgpt") {
+    collectChatgptDomImages(isShare)
+    return
+  }
   const parser = DOM_PARSERS[siteId]
   const rows = parser()
   if (rows.length === 0) return
@@ -349,7 +353,7 @@ function collectDom(siteId: SiteId, isShare: boolean) {
 
   // turnId 用稳定的 "dom-<idx>" — 流式增长只 upsert 同 row，不重复
   const now = Date.now()
-  const messages: ChatMessage[] = rows.map((r, i) => ({
+  const messages: ChatMessage[] = rows.map((r) => ({
     turnId: `dom-${i}`,
     role: r.role,
     content: r.text,
@@ -373,6 +377,45 @@ function collectDom(siteId: SiteId, isShare: boolean) {
     replace: true
   }
   send(MSG.PARSED, payload).catch(() => void 0)
+}
+
+function collectChatgptDomImages(isShare: boolean): void {
+  const rows = DOM_PARSERS.chatgpt().filter((r) => (pickImages(r.text)?.length ?? 0) > 0)
+  if (rows.length === 0) return
+  const convId =
+    matchSite(location.hostname)?.pickConversationId(location.pathname) ??
+    "dom-" + location.pathname.replace(/\W+/g, "-")
+  const now = Date.now()
+  const messages: ChatMessage[] = rows.map((r) => ({
+    turnId: `dom-img-${r.role}-${hashStr(r.text.slice(0, 60))}`,
+    role: r.role,
+    content: r.text,
+    createdAt: 0,
+    meta: { hasOriginalTime: false },
+    images: pickImages(r.text)
+  }))
+  const payload: ParsedPayload = {
+    conversation: {
+      id: `chatgpt:${convId}`,
+      site: "chatgpt",
+      conversationId: convId,
+      title: `chatgpt ${convId}`,
+      url: location.href,
+      isShare,
+      updatedAt: now,
+      messageCount: messages.length,
+      schemaVersion: 1
+    },
+    messages
+  }
+  send(MSG.PARSED, payload).catch(() => void 0)
+}
+
+// 轻量 hash：用于生成稳定 turnId，避免同一 DOM 消息在多次采集中产生重复行
+function hashStr(s: string): string {
+  let h = 0
+  for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0
+  return (h >>> 0).toString(36)
 }
 
 // 数据驱动：每站一段"按行遍历"的 DOM 解析
@@ -424,7 +467,7 @@ const DOM_PARSERS: Record<SiteId, DomParser> = {
         const imgMd: string[] = []
         const seen = new Set<string>()
         imgs.forEach((img) => {
-          const src = img.src || img.getAttribute("data-src") || ""
+          const src = normalizeImageUrl(img.src || img.getAttribute("data-src") || "")
           if (!src || !/^https?:\/\//i.test(src)) return
           if (seen.has(src)) return // 同一 URL 去重（生成图在 DOM 中有 3 份副本）
           const w = img.naturalWidth || img.width || 0
@@ -487,6 +530,13 @@ function textStripped(el: Element, skipSelectors: string[]): string {
   }
   const t = clone.textContent ?? ""
   return t.trim().replace(/\u00a0/g, " ").replace(/\n{3,}/g, "\n\n")
+}
+
+function normalizeImageUrl(src: string): string {
+  if (!src) return ""
+  if (src.startsWith("//")) return `https:${src}`
+  if (src.startsWith("/")) return `${location.origin}${src}`
+  return src
 }
 
 function debounce<T extends (...a: any[]) => void>(fn: T, ms: number): T {

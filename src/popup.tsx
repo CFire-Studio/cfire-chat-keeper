@@ -51,7 +51,7 @@ export default function Popup() {
   useEffect(() => {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       const url = tabs[0]?.url ?? ""
-      setCanFetchFullHistory(url.includes("doubao.com/chat/") || url.includes("chatgpt.com/share/"))
+      setCanFetchFullHistory(canFetchHistoryFromUrl(url))
     })
   }, [])
 
@@ -118,7 +118,7 @@ export default function Popup() {
   const onScrollUp = async () => {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
     const url = tab?.url ?? ""
-    const supported = url.includes("doubao.com/chat/") || url.includes("chatgpt.com/share/")
+    const supported = canFetchHistoryFromUrl(url)
     if (!tab?.id || !supported) {
       alert(t("scrollAlert1"))
       return
@@ -133,6 +133,12 @@ export default function Popup() {
       refresh()
     }
   }
+
+  const canFetchHistoryFromUrl = (url: string) =>
+    url.includes("doubao.com/chat/") ||
+    url.includes("chatgpt.com/share/") ||
+    url.includes("chatgpt.com/c/") ||
+    url.includes("chat.openai.com/c/")
 
   const onDelete = async (id: string) => {
     await send(MSG.DELETE_CONV, { id })
@@ -328,7 +334,7 @@ export default function Popup() {
             <div style={styles.detailPanel}>
               {convMessages[c.id]?.map((m) => (
                 <div key={m.turnId} style={styles.messageRow}>
-                  <div style={styles.messageHead}>{m.role} · {formatMessageTime(m.createdAt)}</div>
+                  <div style={styles.messageHead}>{m.role}{m.meta?.hasOriginalTime !== false && m.createdAt > 0 ? ` · ${formatMessageTime(m.createdAt)}` : ""}</div>
                   <div style={styles.messageContent}>{m.content}</div>
                 </div>
               ))}

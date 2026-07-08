@@ -65,11 +65,48 @@ export function basenameFromUrl(url: string, idx: number): string {
   try {
     const u = new URL(url)
     const last = u.pathname.split("/").filter(Boolean).pop() ?? ""
-    const safe = last.replace(/[^\w.-]/g, "").slice(0, 40)
-    return safe ? `${prefix}-${safe}` : `${prefix}-image`
+    const rawName = pickImageName(u, last)
+    const safe = rawName.replace(/[^\w.-]/g, "").slice(0, 60)
+    return `${prefix}-${safe || `image${pickImageExt(u, last)}`}`
   } catch {
-    return `${prefix}-image`
+    return `${prefix}-image.png`
   }
+}
+
+function pickImageName(u: URL, last: string): string {
+  const parts = u.pathname.split("/").filter(Boolean)
+  const fileSegment = parts.at(-2) === "files" ? last : parts.at(-2)
+  const candidates = [
+    u.searchParams.get("filename"),
+    u.searchParams.get("file_name"),
+    u.searchParams.get("name"),
+    u.searchParams.get("id"),
+    last === "download" && fileSegment?.startsWith("file-") ? fileSegment : "",
+    last && last !== "download" && last !== "content" ? last : ""
+  ].filter(Boolean) as string[]
+  const base = candidates[0] || "image"
+  return hasImageExt(base) ? base : `${base}${pickImageExt(u, last)}`
+}
+
+function pickImageExt(u: URL, last: string): string {
+  const pathExt = getImageExt(last)
+  if (pathExt) return pathExt
+  const format = (u.searchParams.get("format") ?? u.searchParams.get("ext") ?? "").toLowerCase()
+  if (format === "jpg" || format === "jpeg") return ".jpg"
+  if (format === "png") return ".png"
+  if (format === "webp") return ".webp"
+  if (format === "gif") return ".gif"
+  if (format === "avif") return ".avif"
+  return ".png"
+}
+
+function hasImageExt(name: string): boolean {
+  return !!getImageExt(name)
+}
+
+function getImageExt(name: string): string {
+  const m = name.toLowerCase().match(/\.(png|jpe?g|webp|gif|avif|bmp|svg|heic)(?:$|[?#])/)
+  return m ? `.${m[1] === "jpeg" ? "jpg" : m[1]}` : ""
 }
 
 // 从 text 提取图片；空数组返回 undefined，避免给 message 增加空字段
@@ -93,6 +130,13 @@ export function extractChatgptAssetImages(parts: unknown[]): ImageRef[] {
   const out: ImageRef[] = []
   const seen = new Set<string>()
 
+  const push = (url: string, alt?: string) => {
+    if (!url || !/^https?:\/\//i.test(url)) return
+    if (seen.has(url)) return
+    seen.add(url)
+    out.push({ url, alt })
+  }
+
   // alt 可选来源
   const pickAlt = (p: Record<string, unknown>): string | undefined => {
     const asset = p.image_asset as { file_id?: string } | undefined
@@ -102,6 +146,9 @@ export function extractChatgptAssetImages(parts: unknown[]): ImageRef[] {
   for (const p of parts) {
     if (!p || typeof p !== "object") continue
     const part = p as Record<string, unknown>
+
+    const deepImages = extractChatgptNestedImages(part)
+    for (const img of deepImages) push(img.url, img.alt ?? pickAlt(part))
 
     // 宽松 content_type：包含 "image" 即视为图片 part
     const ct = String(part.content_type ?? "")
@@ -113,10 +160,7 @@ export function extractChatgptAssetImages(parts: unknown[]): ImageRef[] {
       (typeof part.image_url === "string" ? part.image_url : undefined) ??
       ((part.image_url as { url?: string } | undefined)?.url)
     if (rawUrl && /^https?:\/\//i.test(rawUrl)) {
-      if (!seen.has(rawUrl)) {
-        seen.add(rawUrl)
-        out.push({ url: rawUrl, alt: pickAlt(part) })
-      }
+      push(rawUrl, pickAlt(part))
       continue
     }
 
@@ -125,20 +169,47 @@ export function extractChatgptAssetImages(parts: unknown[]): ImageRef[] {
       (part.image_asset as { file_id?: string } | undefined)?.file_id ??
       pickFileIdFromPointer(part.asset_pointer as string | undefined)
     if (fileId) {
-      const downloadUrl = chatgptFileDownloadUrl(fileId)
-      if (!seen.has(downloadUrl)) {
-        seen.add(downloadUrl)
-        out.push({ url: downloadUrl, alt: fileId })
-      }
+      push(chatgptFileDownloadUrl(fileId), fileId)
     }
   }
+  return out
+}
+
+function extractChatgptNestedImages(value: unknown): ImageRef[] {
+  const out: ImageRef[] = []
+  const seen = new Set<string>()
+  const push = (url: string, alt?: string) => {
+    if (!url || !/^https?:\/\//i.test(url) || seen.has(url)) return
+    seen.add(url)
+    out.push({ url, alt })
+  }
+  const walk = (v: unknown, key = "", inImage = false, depth = 0) => {
+    if (depth > 8 || v == null) return
+    const imageKey = /image|asset|photo|picture|thumbnail|generation|dalle|url/i.test(key)
+    const active = inImage || imageKey
+    if (typeof v === "string") {
+      const fileId = pickFileIdFromPointer(v)
+      if (fileId) push(chatgptFileDownloadUrl(fileId), fileId)
+      if (active && /^https?:\/\//i.test(v)) push(v)
+      return
+    }
+    if (Array.isArray(v)) {
+      v.forEach((item) => walk(item, key, active, depth + 1))
+      return
+    }
+    if (typeof v !== "object") return
+    for (const [childKey, childValue] of Object.entries(v)) {
+      walk(childValue, childKey, active, depth + 1)
+    }
+  }
+  walk(value)
   return out
 }
 
 // asset_pointer 形如 "file-service://file-abc123" → 提取 "file-abc123"
 function pickFileIdFromPointer(pointer?: string): string | undefined {
   if (!pointer) return undefined
-  const m = pointer.match(/(file-[A-Za-z0-9_-]+)/)
+  const m = pointer.match(/(?:^|[/])((?:file)-[A-Za-z0-9_-]+)(?=$|[/?#])/)
   return m ? m[1] : undefined
 }
 
@@ -151,14 +222,15 @@ function chatgptFileDownloadUrl(fileId: string): string {
 // 附件结构：{ id: "file-xxx", mimeType: "image/png", name: "photo.png" }
 // 与 parts 中的 image_asset_pointer 同样走 /backend-api/files/<id>/download
 export function pickChatgptAttachmentImages(
-  attachments?: Array<{ id?: string; mimeType?: string; name?: string }>
+  attachments?: Array<{ id?: string; mimeType?: string; mime_type?: string; content_type?: string; name?: string }>
 ): ImageRef[] {
   if (!attachments || attachments.length === 0) return []
   const out: ImageRef[] = []
   const seen = new Set<string>()
   for (const a of attachments) {
     if (!a.id) continue
-    if (a.mimeType && !a.mimeType.startsWith("image/")) continue
+    const mime = a.mimeType ?? a.mime_type ?? a.content_type
+    if (mime && !mime.startsWith("image/")) continue
     const url = chatgptFileDownloadUrl(a.id)
     if (!seen.has(url)) {
       seen.add(url)
