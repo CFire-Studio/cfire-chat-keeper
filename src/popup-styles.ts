@@ -207,6 +207,10 @@ export const styles: Record<string, React.CSSProperties> = {
   expandBtn: { fontSize: F.xs, padding: "1px 6px", cursor: "pointer", background: C.primaryLight, border: `1px solid ${C.accent}`, borderRadius: 8, color: C.primary, flexShrink: 0, fontWeight: 600 },
 
   // ---- 图片行 ----
+  detailPanel: { maxHeight: 220, overflowY: "auto", borderBottom: `1px solid ${C.borderLight}` },
+  messageRow: { padding: "6px 10px 6px 22px", background: C.bg, borderBottom: `1px solid ${C.borderLight}` },
+  messageHead: { color: C.primary, fontSize: F.xs, fontWeight: 700, marginBottom: 2 },
+  messageContent: { color: C.textSub, fontSize: F.xs, lineHeight: 1.5, maxHeight: 42, overflow: "hidden" },
   imgRow: { display: "flex", alignItems: "center", gap: 6, padding: "5px 8px 5px 22px", borderBottom: `1px solid ${C.borderLight}` },
   imgThumb: { width: 40, height: 40, objectFit: "cover", borderRadius: 8, flexShrink: 0, background: C.primaryLight, border: `1px solid ${C.border}` },
   imgFallback: { width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center", fontSize: F.xs, color: C.textSub, background: C.primaryLight, borderRadius: 8, flexShrink: 0, overflow: "hidden", padding: 2, textAlign: "center", border: `1px solid ${C.border}` },

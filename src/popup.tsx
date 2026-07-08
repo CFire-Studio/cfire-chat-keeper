@@ -4,11 +4,12 @@ import { MSG, send } from "~lib/messaging"
 import { collectImages, basenameFromUrl } from "~lib/images"
 import { exportConversation } from "~lib/export"
 import { runBatchDownload, type BatchProgress } from "~lib/batch"
+import { formatMessageTime } from "~lib/time"
 import { loadHistory, addHistory, filterByPrefix } from "~lib/folder-history"
 import { t } from "~lib/i18n"
 import { styles } from "~popup-styles"
 import logoUrl from "url:../assets/icon.png"
-import type { Conversation, ImageRef } from "~lib/types"
+import type { ChatMessage, Conversation, ImageRef } from "~lib/types"
 
 // 邮箱地址：用户反馈问题
 const DEV_EMAIL = "dev@tokenspark.uno"
@@ -24,6 +25,7 @@ export default function Popup() {
   const [canFetchFullHistory, setCanFetchFullHistory] = useState(false)
   const [expandedConvs, setExpandedConvs] = useState<Set<string>>(new Set())
   const [convImages, setConvImages] = useState<Record<string, ImageRef[]>>({})
+  const [convMessages, setConvMessages] = useState<Record<string, ChatMessage[]>>({})
   const [selectedImages, setSelectedImages] = useState<Record<string, Set<string>>>({})
   const [folderHistory, setFolderHistory] = useState<string[]>([])
   const [batchRunning, setBatchRunning] = useState(false)
@@ -144,9 +146,10 @@ export default function Popup() {
       next.delete(id)
     } else {
       next.add(id)
-      if (!convImages[id]) {
+      if (!convMessages[id]) {
         const msgs = await send(MSG.GET_MESSAGES, { id })
         const imgs = collectImages(msgs)
+        setConvMessages((prev) => ({ ...prev, [id]: msgs }))
         setConvImages((prev) => ({ ...prev, [id]: imgs }))
         if (!selectedImages[id]) {
           setSelectedImages((prev) => ({
@@ -314,46 +317,31 @@ export default function Popup() {
                 {c.imageCount ? ` · ${c.imageCount} ${t("progressImg")}` : ""}
               </div>
             </div>
-            {(c.imageCount ?? 0) > 0 && (
-              <button
-                style={styles.expandBtn}
-                onClick={() => toggleExpand(c)}
-                disabled={busy}
-              >
-                {c.imageCount} {expandedConvs.has(c.id) ? "image" : "image found"}
-              </button>
-            )}
+            <button style={styles.expandBtn} onClick={() => toggleExpand(c)} disabled={busy}>
+              {expandedConvs.has(c.id) ? "Hide" : "Details"}
+            </button>
             <button style={styles.btn} onClick={() => exportConversation(c, "md", saveDir)} disabled={busy}>MD</button>
             <button style={styles.btn} onClick={() => exportConversation(c, "json", saveDir)} disabled={busy}>JSON</button>
             <button style={styles.btn} onClick={() => onDelete(c.id)} disabled={busy}>✕</button>
           </div>
-          {expandedConvs.has(c.id) && convImages[c.id]?.map((img, i) => (
-            <div key={img.url} style={styles.imgRow}>
-              <input
-                type="checkbox"
-                style={styles.checkbox}
-                checked={selectedImages[c.id]?.has(img.url) ?? false}
-                onChange={() => toggleImage(c.id, img.url)}
-                disabled={busy}
-              />
-              <img
-                src={img.url}
-                style={styles.imgThumb}
-                onError={(e) => {
-                  const el = e.currentTarget
-                  el.style.display = "none"
-                  const fb = el.nextElementSibling as HTMLElement
-                  if (fb) fb.style.display = "flex"
-                }}
-              />
-              <div style={{ ...styles.imgFallback, display: "none" }}>
-                {basenameFromUrl(img.url, i).slice(4)}
-              </div>
-              <span style={styles.imgName} title={img.url}>
-                {basenameFromUrl(img.url, i)}
-              </span>
+          {expandedConvs.has(c.id) && (
+            <div style={styles.detailPanel}>
+              {convMessages[c.id]?.map((m) => (
+                <div key={m.turnId} style={styles.messageRow}>
+                  <div style={styles.messageHead}>{m.role} · {formatMessageTime(m.createdAt)}</div>
+                  <div style={styles.messageContent}>{m.content}</div>
+                </div>
+              ))}
+              {convImages[c.id]?.map((img, i) => (
+                <div key={img.url} style={styles.imgRow}>
+                  <input type="checkbox" style={styles.checkbox} checked={selectedImages[c.id]?.has(img.url) ?? false} onChange={() => toggleImage(c.id, img.url)} disabled={busy} />
+                  <img src={img.url} style={styles.imgThumb} onError={(e) => { const el = e.currentTarget; el.style.display = "none"; const fb = el.nextElementSibling as HTMLElement; if (fb) fb.style.display = "flex" }} />
+                  <div style={{ ...styles.imgFallback, display: "none" }}>{basenameFromUrl(img.url, i).slice(4)}</div>
+                  <span style={styles.imgName} title={img.url}>{basenameFromUrl(img.url, i)}</span>
+                </div>
+              ))}
             </div>
-          ))}
+          )}
         </Fragment>
       ))}
 

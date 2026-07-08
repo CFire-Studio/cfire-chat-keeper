@@ -37,5 +37,9 @@ export function send<K extends keyof ReqMap>(
   type: K,
   payload: ReqMap[K]["payload"]
 ): Promise<ReqMap[K]["reply"]> {
-  return chrome.runtime.sendMessage({ type, payload })
+  try {
+    return chrome.runtime.sendMessage({ type, payload })
+  } catch (error) {
+    return Promise.reject(error)
+  }
 }
