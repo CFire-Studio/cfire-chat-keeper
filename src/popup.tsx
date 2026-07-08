@@ -21,7 +21,7 @@ export default function Popup() {
   const [searchResults, setSearchResults] = useState<Conversation[] | null>(null)
   const [batchDialogOpen, setBatchDialogOpen] = useState(false)
   const [saveDir, setSaveDir] = useState("")
-  const [isDoubaoTab, setIsDoubaoTab] = useState(false)
+  const [canFetchFullHistory, setCanFetchFullHistory] = useState(false)
   const [expandedConvs, setExpandedConvs] = useState<Set<string>>(new Set())
   const [convImages, setConvImages] = useState<Record<string, ImageRef[]>>({})
   const [selectedImages, setSelectedImages] = useState<Record<string, Set<string>>>({})
@@ -48,7 +48,8 @@ export default function Popup() {
 
   useEffect(() => {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      setIsDoubaoTab(!!tabs[0]?.url?.includes("doubao.com/chat/"))
+      const url = tabs[0]?.url ?? ""
+      setCanFetchFullHistory(url.includes("doubao.com/chat/") || url.includes("chatgpt.com/share/"))
     })
   }, [])
 
@@ -114,7 +115,9 @@ export default function Popup() {
 
   const onScrollUp = async () => {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
-    if (!tab?.id || !tab.url || !tab.url.includes("doubao.com/chat/")) {
+    const url = tab?.url ?? ""
+    const supported = url.includes("doubao.com/chat/") || url.includes("chatgpt.com/share/")
+    if (!tab?.id || !supported) {
       alert(t("scrollAlert1"))
       return
     }
@@ -186,7 +189,7 @@ export default function Popup() {
         <button style={refreshSpinning ? styles.headerBtnSpinning : styles.headerBtn} onClick={onRefreshClick} disabled={busy} title={t("refreshTitle")}>↻</button>
       </div>
 
-      {isDoubaoTab && (
+      {canFetchFullHistory && (
         <div style={styles.scrollAction}>
           <button
             style={busy ? styles.btnPrimaryDisabled : styles.btnPrimary}

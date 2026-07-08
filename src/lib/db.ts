@@ -99,10 +99,11 @@ export async function saveRaw(r: RawPayload): Promise<void> {
   })
 }
 
-export async function getAllRaw(): Promise<RawPayload[]> {
+export async function getRawByConvId(convId: string): Promise<RawPayload[]> {
   return tx("raw", "readonly", async (t) => {
+    const idx = t.objectStore("raw").index("convId")
     return reqAsPromise(
-      t.objectStore("raw").getAll() as IDBRequest<RawPayload[]>
+      idx.getAll(IDBKeyRange.only(convId)) as IDBRequest<RawPayload[]>
     )
   })
 }

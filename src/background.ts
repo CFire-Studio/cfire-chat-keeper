@@ -5,7 +5,7 @@ import {
   countImages,
   countMessages,
   deleteConversation,
-  getAllRaw,
+  getRawByConvId,
   getMessages,
   listConversations,
   saveRaw,
@@ -47,10 +47,12 @@ async function handle(msg: { type: string; payload: any }) {
   switch (msg.type) {
     case MSG.INGEST: {
       const p = msg.payload
-      const convKey = `${p.site}:${p.url}:${p.capturedAt}`
+      const parsed = parseEvent(p)
+      const convId = parsed?.conversation.id ?? `${p.site}:raw`
+      const convKey = `${convId}:${p.url}:${p.capturedAt}`
       await saveRaw({
         id: convKey,
-        convId: `${p.site}:raw`,
+        convId,
         source: p.source,
         url: p.url,
         status: p.status,
@@ -99,16 +101,11 @@ async function handle(msg: { type: string; payload: any }) {
       return { ok: true }
     }
     case MSG.REPARSE_RAW: {
-      // 兜底恢复：从 raw 表重新解析所有命中 capturePatterns 的响应，
-      // 补回 scrollUpLoop 期间因 SW 休眠/消息丢失未处理的 PARSED 消息。
-      // raw 表的 convId 格式为 "<site>:raw"，从中提取 site 过滤。
-      const { site } = msg.payload
-      const raws = await getAllRaw()
+      const { site, convId } = msg.payload
+      const raws = await getRawByConvId(convId)
       let reprocessed = 0
       const convIdsTouched = new Set<string>()
       for (const raw of raws) {
-        // convId 格式 "<site>:raw"，只处理指定 site 的原始响应
-        if (!raw.convId || !raw.convId.startsWith(`${site}:raw`)) continue
         const evt: IngestEvent = {
           source: raw.source,
           site,
@@ -118,13 +115,12 @@ async function handle(msg: { type: string; payload: any }) {
           capturedAt: raw.capturedAt
         }
         const parsed = parseEvent(evt)
-        if (!parsed) continue
+        if (!parsed || parsed.conversation.id !== convId) continue
         await upsertConversation(parsed.conversation)
         await upsertMessages(parsed.conversation.id, parsed.messages)
         convIdsTouched.add(parsed.conversation.id)
         reprocessed++
       }
-      // 重新计算受影响对话的 messageCount + imageCount
       for (const convId of convIdsTouched) {
         const convs = await listConversations()
         const c = convs.find((x) => x.id === convId)
