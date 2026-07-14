@@ -59,7 +59,8 @@ async function handle(msg: { type: string; payload: any }) {
         url: p.url,
         status: p.status,
         capturedAt: p.capturedAt,
-        body: p.body
+        body: p.body,
+        requestBody: p.requestBody
       })
       return { ok: true }
     }
@@ -120,8 +121,11 @@ async function handle(msg: { type: string; payload: any }) {
     case MSG.REPARSE_RAW: {
       const { site, convId } = msg.payload
       const raws = await getRawByConvId(convId)
-      let reprocessed = 0
-      const convIdsTouched = new Set<string>()
+      // 先把所有 raw 解析并聚合成统一的消息集合，再一次性写入。
+      // 避免逐页 upsertConversation 把 messageCount 写成单页数量（20），
+      // 导致 Fast Fetching 期间 popup 数字在 20 与真实总数之间反复波动。
+      const mergedMessages = new Map<string, ChatMessage>()
+      let lastConv: Conversation | null = null
       for (const raw of raws) {
         const evt: IngestEvent = {
           source: raw.source,
@@ -133,21 +137,25 @@ async function handle(msg: { type: string; payload: any }) {
         }
         const parsed = parseEvent(evt)
         if (!parsed || parsed.conversation.id !== convId) continue
-        await upsertConversation(parsed.conversation)
-        await upsertMessages(parsed.conversation.id, parsed.messages)
-        convIdsTouched.add(parsed.conversation.id)
-        reprocessed++
+        lastConv = parsed.conversation
+        for (const m of parsed.messages) {
+          mergedMessages.set(m.turnId, m)
+        }
       }
-      for (const convId of convIdsTouched) {
-        const convs = await listConversations()
-        const c = convs.find((x) => x.id === convId)
-        if (!c) continue
-        const actualCount = await countMessages(convId)
-        const imgCount = await countImages(convId)
-        await upsertConversation({ ...c, messageCount: actualCount, imageCount: imgCount })
+      if (!lastConv) {
+        return { ok: true, reprocessed: 0 }
       }
+      await upsertMessages(convId, Array.from(mergedMessages.values()))
+      const actualCount = await countMessages(convId)
+      const imgCount = await countImages(convId)
+      const convs = await listConversations()
+      const existing = convs.find((c) => c.id === convId)
+      const nextConv: Conversation = existing
+        ? { ...existing, messageCount: actualCount, imageCount: imgCount, updatedAt: Date.now() }
+        : { ...lastConv, messageCount: actualCount, imageCount: imgCount, updatedAt: Date.now() }
+      await upsertConversation(nextConv)
       await updateBadge()
-      return { ok: true, reprocessed }
+      return { ok: true, reprocessed: raws.length }
     }
     default:
       return { ok: false, error: "unknown type" }

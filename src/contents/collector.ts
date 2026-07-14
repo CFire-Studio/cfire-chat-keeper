@@ -43,38 +43,65 @@ if (site) {
 // 最近一次 /im/chain/single 响应到达时间，scrollUpLoop 用它判断是否还有更早消息
 let lastImChainRespAt = 0
 
+// 豆包智能体/ bot 页面的实际 conversation_id 在 API 响应中，与 URL 里的 bot_id 不同。
+// 用此变量对齐 DOM 图片补充、标题更新与 REPARSE_RAW 的会话 ID。
+let lastDoubaoApiConvId: string | null = null
+
+// 最近一次 /im/chain/single 的请求信息，用于批量拉取历史时复用请求体
+let lastDoubaoChainUrl: string | null = null
+let lastDoubaoChainRequestBody: string | null = null
+let lastDoubaoNextIndex: string | null = null
+
 // popup 通过 chrome.tabs.sendMessage 发来 SCROLL_UP，触发自动滚动获取完整历史
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  if (msg?.type !== MSG.SCROLL_UP) return false // 非目标消息不处理，避免干扰 background
-  ;(async () => {
-    try {
-      if (site?.id === "chatgpt") {
-        collectChatgptSnapshot(true)
-        await sleep(1200)
-        sendResponse({ iterations: 1, scrolled: false, reachedTop: true, site: "chatgpt", __collectorVersion: "v2-2026-07-08" })
-        return
-      }
-      const result = await scrollUpLoop()
-      // 二次处理：滚动加载完成后，从 DOM 抓取 AI 生成图片。
-      // 豆包虚拟滚动下只有可见消息在 DOM 中，滚到底部确保对话末尾的图片被渲染。
-      if (site?.id === "doubao") {
-        await collectDoubaoDomImages()
-        // 兜底恢复：scrollUpLoop 期间多条 API 响应快速到达，
-        // 部分 PARSED 消息可能因 SW 休眠/消息丢失未处理。
-        // 从 raw 表重新解析所有 /im/chain/single 响应，补回丢失的消息。
-        try {
-          const convId = matchSite(location.hostname)?.pickConversationId(location.pathname)
-          if (convId) await send(MSG.REPARSE_RAW, { site: "doubao", convId: `doubao:${convId}` })
-        } catch {
-          // SW 不可达时忽略，raw 表数据仍保留供下次恢复
+  if (msg?.type === MSG.SCROLL_UP) {
+    ;(async () => {
+      try {
+        if (site?.id === "chatgpt") {
+          collectChatgptSnapshot(true)
+          await sleep(1200)
+          sendResponse({ iterations: 1, scrolled: false, reachedTop: true, site: "chatgpt", __collectorVersion: "v2-2026-07-08" })
+          return
         }
+        const result = await scrollUpLoop()
+        // 二次处理：滚动加载完成后，从 DOM 抓取 AI 生成图片。
+        // 豆包虚拟滚动下只有可见消息在 DOM 中，滚到底部确保对话末尾的图片被渲染。
+        if (site?.id === "doubao") {
+          await collectDoubaoDomImages()
+          // 兜底恢复：scrollUpLoop 期间多条 API 响应快速到达，
+          // 部分 PARSED 消息可能因 SW 休眠/消息丢失未处理。
+          // 从 raw 表重新解析所有 /im/chain/single 响应，补回丢失的消息。
+          // 豆包 bot 页面用 API 返回的真实 conversation_id，而非 URL 里的 bot_id。
+          try {
+            const convId =
+              lastDoubaoApiConvId ??
+              matchSite(location.hostname)?.pickConversationId(location.pathname)
+            if (convId) await send(MSG.REPARSE_RAW, { site: "doubao", convId: `doubao:${convId}` })
+          } catch {
+            // SW 不可达时忽略，raw 表数据仍保留供下次恢复
+          }
+        }
+        sendResponse({ ...result, __collectorVersion: "v2-2026-07-06" })
+      } catch (e) {
+        sendResponse({ iterations: 0, scrolled: false, error: String(e), stack: (e as Error)?.stack, __collectorVersion: "v2-2026-07-06" })
       }
-      sendResponse({ ...result, __collectorVersion: "v2-2026-07-06" })
-    } catch (e) {
-      sendResponse({ iterations: 0, scrolled: false, error: String(e), stack: (e as Error)?.stack, __collectorVersion: "v2-2026-07-06" })
-    }
-  })()
-  return true // 异步响应
+    })()
+    return true // 异步响应
+  }
+
+  if (msg?.type === MSG.BATCH_FETCH_HISTORY) {
+    ;(async () => {
+      try {
+        const result = await batchFetchDoubaoHistory()
+        sendResponse(result)
+      } catch (e) {
+        sendResponse({ ok: false, fetched: 0, reachedTop: false, error: String(e), stack: (e as Error)?.stack })
+      }
+    })()
+    return true // 异步响应
+  }
+
+  return false // 非目标消息不处理
 })
 
 function scheduleChatgptAutoCollect(): void {
@@ -90,9 +117,22 @@ function collectChatgptSnapshot(force = false): void {
 function bindPostMessage(siteId: SiteId) {
   window.addEventListener("message", (ev) => {
     const d = ev.data
-    if (!d || d.__tag !== "ACK_NET") return
+    if (!d) return
+
+    // 批量拉取完成/进度消息（来自 main-world-hook）
+    if (d.__tag === "ACK_BATCH_FETCH_RESULT") {
+      lastBatchFetchResolve?.(d)
+      return
+    }
+
+    if (d.__tag !== "ACK_NET") return
     if (typeof d.url === "string" && d.url.indexOf("/im/chain/single") >= 0) {
       lastImChainRespAt = Date.now()
+      updateLastDoubaoConvId(d.body)
+      updateLastDoubaoChainInfo(d.url, d.requestBody, d.body)
+    }
+    if (typeof d.url === "string" && d.url.indexOf("/im/conversation/info") >= 0) {
+      updateLastDoubaoConvId(d.body)
     }
     const evt: IngestEvent = {
       source: d.source,
@@ -100,12 +140,105 @@ function bindPostMessage(siteId: SiteId) {
       url: d.url,
       status: d.status,
       body: d.body,
+      requestBody: d.requestBody,
       capturedAt: Date.now()
     }
     const parsed = parseEvent(evt)
     if (parsed) send(MSG.PARSED, parsed).catch(() => void 0)
     send(MSG.INGEST, evt).catch(() => void 0)
   })
+}
+
+// 从 /im/chain/single 响应体解析 next_index，用于批量翻页
+function updateLastDoubaoChainInfo(url: string, requestBody: unknown, body: unknown): void {
+  lastDoubaoChainUrl = url
+  if (typeof requestBody === "string") lastDoubaoChainRequestBody = requestBody
+  const json = safeJson(body)
+  if (!json || typeof json !== "object") return
+  const next = getPath(json, "downlink_body.pull_singe_chain_downlink_body.next_index")
+  if (typeof next === "string" && next) {
+    lastDoubaoNextIndex = next
+  }
+}
+
+let lastBatchFetchResolve: ((result: { ok: boolean; fetched: number; reachedTop: boolean; error?: string }) => void) | null = null
+
+// 批量拉取豆包历史：通过 anchor_index + direction=1 循环请求 /im/chain/single，避免慢速滚动。
+// 实际 fetch 在 main-world-hook（MAIN world）执行，以使用页面 cookies 和请求头。
+async function batchFetchDoubaoHistory(): Promise<{ ok: boolean; fetched: number; reachedTop: boolean; error?: string }> {
+  if (!lastDoubaoChainUrl) {
+    return { ok: false, fetched: 0, reachedTop: false, error: "尚未观察到 /im/chain/single 请求，请先滚动一下或等待页面加载历史" }
+  }
+
+  const result = await new Promise<{ ok: boolean; fetched: number; reachedTop: boolean; error?: string }>((resolve) => {
+    lastBatchFetchResolve = resolve
+    window.postMessage(
+      {
+        __tag: "ACK_TRIGGER_BATCH_FETCH",
+        url: lastDoubaoChainUrl,
+        requestBody: lastDoubaoChainRequestBody,
+        nextIndex: lastDoubaoNextIndex,
+        conversationId: lastDoubaoApiConvId
+      },
+      "*"
+    )
+    // 超时兜底
+    setTimeout(() => {
+      if (lastBatchFetchResolve === resolve) {
+        lastBatchFetchResolve = null
+        resolve({ ok: false, fetched: 0, reachedTop: false, error: "批量拉取未在 5 分钟内完成" })
+      }
+    }, 300000)
+  })
+
+  // 兜底恢复：批量拉取期间大量 API 响应快速到达，部分 PARSED 消息可能因 SW 休眠/消息丢失未处理。
+  // 从 raw 表重新解析所有 /im/chain/single 响应，补回丢失的消息。
+  if (result.ok || result.fetched > 0) {
+    try {
+      const convId =
+        lastDoubaoApiConvId ??
+        matchSite(location.hostname)?.pickConversationId(location.pathname)
+      if (convId) await send(MSG.REPARSE_RAW, { site: "doubao", convId: `doubao:${convId}` })
+    } catch {
+      // SW 不可达时忽略，raw 表数据仍保留供下次恢复
+    }
+  }
+
+  return result
+}
+
+// 从 /im/chain/single 或 /im/conversation/info 响应体解析真实 conversation_id。
+// 豆包智能体/ bot 页面 URL 里是 bot_id，与 conversation_id 不同，必须用 API 响应对齐。
+function updateLastDoubaoConvId(body: unknown): void {
+  const json = safeJson(body)
+  if (!json || typeof json !== "object") return
+  const id =
+    getPath(json, "downlink_body.pull_singe_chain_downlink_body.messages.0.conversation_id") ??
+    getPath(json, "downlink_body.get_conv_info_downlink_body.conversation_info.conversation_id")
+  if (typeof id === "string" && id) {
+    lastDoubaoApiConvId = id
+  }
+}
+
+function safeJson(v: unknown): unknown {
+  if (v == null) return null
+  if (typeof v === "object") return v
+  try {
+    return JSON.parse(v as string)
+  } catch {
+    return null
+  }
+}
+
+function getPath(obj: unknown, path: string): unknown {
+  if (!obj || typeof obj !== "object") return undefined
+  const parts = path.split(".")
+  let cur: unknown = obj
+  for (const p of parts) {
+    if (cur == null || typeof cur !== "object") return undefined
+    cur = (cur as Record<string, unknown>)[p]
+  }
+  return cur
 }
 
 // ============== 自动滚动：触发页面分页加载完整历史 ==============
@@ -216,7 +349,9 @@ async function collectDoubaoDomImages(): Promise<void> {
   const imgs = collectVisibleImageUrls()
   if (imgs.length === 0) return
 
+  // 豆包 bot 页面 URL 中是 bot_id，真实 conversation_id 来自 API 响应
   const convId =
+    lastDoubaoApiConvId ??
     matchSite(location.hostname)?.pickConversationId(location.pathname) ??
     "dom"
   const now = Date.now()
@@ -353,7 +488,7 @@ function collectDom(siteId: SiteId, isShare: boolean) {
 
   // turnId 用稳定的 "dom-<idx>" — 流式增长只 upsert 同 row，不重复
   const now = Date.now()
-  const messages: ChatMessage[] = rows.map((r) => ({
+  const messages: ChatMessage[] = rows.map((r, i) => ({
     turnId: `dom-${i}`,
     role: r.role,
     content: r.text,

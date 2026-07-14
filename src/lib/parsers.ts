@@ -1,5 +1,6 @@
 import type {
   ChatMessage,
+  ImageRef,
   IngestEvent,
   Role,
   SiteId
@@ -456,11 +457,31 @@ interface DbMsg {
   conversation_id?: string
   user_type?: number // 1=user 2=assistant
   create_time?: string | number // 秒级
+  content?: string // 智能体/旧版消息：JSON 字符串或纯文本
+  content_type?: number
+  tts_content?: string
   content_block?: DbContentBlock[]
 }
 
 function parseDoubao(ev: IngestEvent): ParsedPayload | null {
   const json = safeJson(ev.body)
+
+  // /im/conversation/info: 解析会话标题
+  if (typeof ev.url === "string" && ev.url.indexOf("/im/conversation/info") >= 0) {
+    const info = getPath(json, "downlink_body.get_conv_info_downlink_body.conversation_info") as
+      | { conversation_id?: string; name?: string }
+      | undefined
+    if (info?.conversation_id && info?.name) {
+      return {
+        conversation: {
+          ...buildConv(ev.site, String(info.conversation_id), ev.url, 0),
+          title: info.name
+        },
+        messages: []
+      }
+    }
+    return null
+  }
 
   // /im/chain/single: 完整消息链
   const rawMsgs = pickArray(json, [
@@ -499,26 +520,15 @@ function parseDoubao(ev: IngestEvent): ParsedPayload | null {
 
   const messages: ChatMessage[] = []
   for (const m of rawMsgs) {
-    const blocks = m.content_block ?? []
-    // 只取顶层(parent_id 为空)的 text_block 作为正文，丢弃思考子块
-    const rawText = blocks
-      .filter((b) => b.block_type === 10000 && !b.parent_id)
-      .map((b) => pickString(b, ["content.text_block.text"]))
-      .filter(Boolean)
-      .join("\n")
-      .trim()
+    const text = extractDoubaoMessageText(m)
     // 剥离产品功能按钮图标的 markdown 引用（Deep_Think / Search 等），保留生成图
-    const text = stripDoubaoNonGenImageMarkdown(rawText)
-    // 图片来源 1：深度扫描所有 block，仅保留 AI 生成图片（排除 tool_icon 等）
-    const blockImages = filterDoubaoGeneratedImages(extractDoubaoBlockImages(blocks))
-    // 图片来源 2：文本中内联的生成图 markdown（与 blockImages 按 hex 去重合并）
-    const textImages = filterDoubaoGeneratedImages(pickImages(text) ?? [])
-    const allImages = mergeImages(blockImages, textImages) ?? []
-    if (!text && allImages.length === 0) continue
+    const normalizedText = stripDoubaoNonGenImageMarkdown(text)
+    const allImages = extractDoubaoMessageImages(m, normalizedText)
+    if (!normalizedText && allImages.length === 0) continue
     const role: Role = m.user_type === 1 ? "user" : "assistant"
     const ts = Number(m.create_time) || nowMs() / 1000
     // 先剥离文本中所有图片 markdown（避免与追加的 imgMd 重复），再追加合并后的图片
-    const cleanText = stripAllImageMarkdown(text)
+    const cleanText = stripAllImageMarkdown(normalizedText)
     const imgMd = allImages
       .map((img) => `![${img.alt ?? "image"}](${img.url})`)
       .join("\n")
@@ -539,6 +549,46 @@ function parseDoubao(ev: IngestEvent): ParsedPayload | null {
     conversation: buildConv(ev.site, convId, ev.url, messages.length),
     messages
   }
+}
+
+// 豆包消息正文提取：优先新版 content_block，再回退到智能体/旧版的 content 字符串
+function extractDoubaoMessageText(m: DbMsg): string {
+  const blocks = m.content_block ?? []
+  const fromBlocks = blocks
+    .filter((b) => b.block_type === 10000 && !b.parent_id)
+    .map((b) => pickString(b, ["content.text_block.text"]))
+    .filter(Boolean)
+    .join("\n")
+    .trim()
+  if (fromBlocks) return fromBlocks
+  return extractDoubaoContentText(m.content) || (m.tts_content ?? "").trim()
+}
+
+function extractDoubaoContentText(content: unknown): string {
+  if (typeof content !== "string") return ""
+  const trimmed = content.trim()
+  if (!trimmed) return ""
+  const parsed = safeJson(trimmed)
+  if (parsed && typeof parsed === "object") {
+    const text = (parsed as Record<string, unknown>).text
+    if (typeof text === "string" && text) return text
+  }
+  return trimmed
+}
+
+// 豆包消息图片提取：合并 content_block 扫描与 content 字符串中的生成图
+function extractDoubaoMessageImages(m: DbMsg, text: string): ImageRef[] {
+  const blockImages = filterDoubaoGeneratedImages(extractDoubaoBlockImages(m.content_block ?? []))
+  const contentImages: ImageRef[] = []
+  if (typeof m.content === "string") {
+    const parsed = safeJson(m.content)
+    if (parsed && typeof parsed === "object") {
+      contentImages.push(...extractDoubaoBlockImages([{ content: parsed }]))
+    }
+    contentImages.push(...(pickImages(m.content) ?? []))
+  }
+  const inlineImages = pickImages(text) ?? []
+  return mergeImages(blockImages, filterDoubaoGeneratedImages(contentImages), filterDoubaoGeneratedImages(inlineImages)) ?? []
 }
 
 // ============== DOM 兜底（分享页 / SSR）==============

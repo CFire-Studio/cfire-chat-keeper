@@ -7,7 +7,7 @@ import { runBatchDownload, type BatchProgress } from "~lib/batch"
 import { formatMessageTime } from "~lib/time"
 import { loadHistory, addHistory, filterByPrefix } from "~lib/folder-history"
 import { t } from "~lib/i18n"
-import { styles } from "~popup-styles"
+import { styles, refreshKeyframes } from "~popup-styles"
 import logoUrl from "url:../assets/icon.png"
 import type { ChatMessage, Conversation, ImageRef } from "~lib/types"
 
@@ -17,6 +17,7 @@ const DEV_EMAIL = "dev@tokenspark.uno"
 export default function Popup() {
   const [list, setList] = useState<Conversation[]>([])
   const [scrolling, setScrolling] = useState(false)
+  const [batchFetching, setBatchFetching] = useState(false)
   const [keyword, setKeyword] = useState("")
   const [debouncedKeyword, setDebouncedKeyword] = useState("")
   const [searchResults, setSearchResults] = useState<Conversation[] | null>(null)
@@ -68,7 +69,7 @@ export default function Popup() {
     if (document.getElementById(styleId)) return
     const style = document.createElement("style")
     style.id = styleId
-    style.textContent = styles.refreshKeyframes as string
+    style.textContent = refreshKeyframes
     document.head.appendChild(style)
   }, [])
 
@@ -91,12 +92,12 @@ export default function Popup() {
     return () => clearTimeout(id)
   }, [keyword])
 
-  // 滚动期间定时刷新列表，让用户实时看到加载进度，无需手动点刷新
+  // 滚动/批量拉取期间定时刷新列表，让用户实时看到加载进度，无需手动点刷新
   useEffect(() => {
-    if (!scrolling) return
+    if (!scrolling && !batchFetching) return
     const id = setInterval(refresh, 2000)
     return () => clearInterval(id)
-  }, [scrolling])
+  }, [scrolling, batchFetching])
 
   useEffect(() => {
     const kw = debouncedKeyword.trim()
@@ -113,7 +114,7 @@ export default function Popup() {
 
   const searching = !!debouncedKeyword.trim() && searchResults === null
   const displayList = debouncedKeyword.trim() ? searchResults ?? [] : list
-  const busy = scrolling || batchRunning
+  const busy = scrolling || batchFetching || batchRunning
 
   const onScrollUp = async () => {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
@@ -130,6 +131,27 @@ export default function Popup() {
       alert(t("scrollAlert2"))
     } finally {
       setScrolling(false)
+      refresh()
+    }
+  }
+
+  const onBatchFetch = async () => {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
+    const url = tab?.url ?? ""
+    if (!tab?.id || !url.includes("doubao.com/chat/")) {
+      alert(t("batchFetchAlert"))
+      return
+    }
+    setBatchFetching(true)
+    try {
+      const res = await chrome.tabs.sendMessage(tab.id, { type: MSG.BATCH_FETCH_HISTORY, site: "doubao" })
+      if (!res?.ok) {
+        alert(t("batchFetchFail") + (res?.error ? `: ${res.error}` : ""))
+      }
+    } catch (e) {
+      alert(t("batchFetchFail") + `: ${String(e)}`)
+    } finally {
+      setBatchFetching(false)
       refresh()
     }
   }
@@ -207,6 +229,14 @@ export default function Popup() {
             title={t("scrollMeta")}
           >
             {scrolling ? t("scrollBtnBusy") : t("scrollBtnIdle")}
+          </button>
+          <button
+            style={busy ? styles.btnPrimaryDisabled : styles.btnSecondary}
+            onClick={onBatchFetch}
+            disabled={busy}
+            title={t("batchFetchMeta")}
+          >
+            {batchFetching ? t("batchFetchBtnBusy") : t("batchFetchBtnIdle")}
           </button>
           <span style={styles.meta}>{t("scrollMeta")}</span>
         </div>

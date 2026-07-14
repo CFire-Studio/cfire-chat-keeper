@@ -42,8 +42,8 @@ const configs: SiteConfig[] = [
   {
     id: "doubao",
     hostnames: ["www.doubao.com"],
-    // /im/chain/single 返回完整消息链；/samantha/ /alice/ 命中大量无关配置 API，已弃用
-    capturePatterns: ["/im/chain/single"],
+    // /im/chain/single 返回完整消息链；/im/conversation/info 用于获取会话标题
+    capturePatterns: ["/im/chain/single", "/im/conversation/info"],
     pickConversationId(p) {
       const m =
         p.match(/\/chat\/(\d+)/) ??

@@ -93,13 +93,18 @@ export const styles: Record<string, React.CSSProperties> = {
     transform: "rotate(0deg)"
   },
   // 刷新按钮旋转动画：点击时 ↻ 快速旋转一圈再恢复
-  refreshKeyframes: `
-    @keyframes cfire-spin {
-      0%   { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
-    }
-  `,
+  // 注意：keyframes 定义字符串单独导出，不放入 styles（CSSProperties）中
+}
 
+export const refreshKeyframes = `
+  @keyframes cfire-spin {
+    0%   { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+`
+
+// 样式对象保持单一 styles，避免 popup.tsx 大量改动
+Object.assign(styles, {
   // ---- 通用按钮 ----
   btn: {
     fontSize: F.sm,
@@ -134,6 +139,18 @@ export const styles: Record<string, React.CSSProperties> = {
     border: "none",
     borderRadius: 10,
     fontWeight: 600,
+    flexShrink: 0
+  },
+  btnSecondary: {
+    fontSize: F.md,
+    padding: "5px 12px",
+    cursor: "pointer",
+    background: "#fff",
+    color: C.primary,
+    border: `1.5px solid ${C.primary}`,
+    borderRadius: 10,
+    fontWeight: 600,
+    transition: "all 0.15s",
     flexShrink: 0
   },
 
@@ -300,4 +317,4 @@ export const styles: Record<string, React.CSSProperties> = {
     background: C.borderLight,
     color: C.textSub
   }
-}
+})

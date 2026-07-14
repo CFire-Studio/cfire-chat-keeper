@@ -29,6 +29,9 @@ export const config: PlasmoCSConfig = {
 const site = matchSite(location.hostname)
 if (site) {
   installHook(site.capturePatterns)
+  if (site.id === "doubao") {
+    installDoubaoBatchFetcher()
+  }
   if (site.id === "chatgpt") {
     scheduleChatgptSnapshot(site.isSharePage(location.pathname))
   }
@@ -71,6 +74,7 @@ function installHook(patterns: string[]) {
       } catch {
         // ignore
       }
+      const requestBody = extractRequestBody(args[1])
       const promise = fn.apply(this, args as any)
       if (hit(url)) {
         promise
@@ -80,7 +84,7 @@ function installHook(patterns: string[]) {
               clone
                 .text()
                 .then((body: string) =>
-                  post({ source: "fetch-hook", url, status: res.status, body })
+                  post({ source: "fetch-hook", url, status: res.status, body, requestBody })
                 )
                 .catch(() => void 0)
             } catch {
@@ -91,6 +95,20 @@ function installHook(patterns: string[]) {
       }
       return promise
     } as typeof rawFetch
+  }
+
+  function extractRequestBody(init: unknown): string | undefined {
+    if (!init || typeof init !== "object") return undefined
+    try {
+      const body = (init as any).body
+      if (typeof body === "string") return body
+      if (body instanceof URLSearchParams) return body.toString()
+      if (body instanceof FormData) return undefined
+      if (body instanceof Blob) return undefined
+      return undefined
+    } catch {
+      return undefined
+    }
   }
 
   let currentFetch = wrapFetch(rawFetch)
@@ -130,12 +148,13 @@ function installHook(patterns: string[]) {
   // wrapOpen 的 setter 链也会确保 __ack_url 被设置
   function hookedSend(this: XMLHttpRequest) {
     const url = (this as any).__ack_url || ""
+    const requestBody = typeof arguments[0] === "string" ? arguments[0] : undefined
     if (hit(url)) {
       this.addEventListener("loadend", () => {
         try {
           const rt = this.responseType
           const text = rt === "" || rt === "text" ? this.responseText : ""
-          if (text) post({ source: "xhr-hook", url, status: this.status, body: text })
+          if (text) post({ source: "xhr-hook", url, status: this.status, body: text, requestBody })
         } catch {
           // ignore
         }
@@ -246,4 +265,198 @@ function findChatgptConversation(value: unknown, convId?: string, seen = new Set
 
 function isChatgptConversationPath(pathname: string): boolean {
   return /^\/c\/[^/?#]+/.test(pathname)
+}
+
+// ============== 豆包历史批量拉取（MAIN world，使用页面 cookies）==============
+//
+// 豆包 /im/chain/single 响应带 has_more + next_index，可通过 next_index 循环翻页，
+// 一次性拉完整段对话，比虚拟滚动快得多。
+// 触发源：collector.ts（isolated world）通过 window.postMessage 发来初始请求信息。
+
+function installDoubaoBatchFetcher() {
+  if ((window as any).__DOUBAO_BATCH_FETCH_INSTALLED__) return
+  ;(window as any).__DOUBAO_BATCH_FETCH_INSTALLED__ = true
+
+  window.addEventListener("message", (ev) => {
+    const d = ev.data
+    if (!d || d.__tag !== "ACK_TRIGGER_BATCH_FETCH") return
+    runDoubaoBatchFetch(d.url, d.requestBody, d.nextIndex, d.conversationId)
+  })
+}
+
+async function runDoubaoBatchFetch(
+  url: string,
+  baseRequestBody: string | null,
+  startNextIndex: string | null,
+  conversationId?: string | null
+) {
+  const result: { ok: boolean; fetched: number; reachedTop: boolean; error?: string } = {
+    ok: false,
+    fetched: 0,
+    reachedTop: false
+  }
+  try {
+    let req: any = parseDoubaoChainRequest(baseRequestBody)
+    if (!req) {
+      if (!conversationId) {
+        result.error = "缺少 /im/chain/single 请求体和 conversationId"
+        postBatchResult(result)
+        return
+      }
+      req = {
+        cmd: 3100,
+        sequence_id: cryptoRandomUUID(),
+        uplink_body: {
+          pull_singe_chain_uplink_body: {
+            conversation_id: conversationId,
+            conversation_type: 3,
+            limit: 20,
+            ext: {},
+            filter: { index_list: [] },
+            evaluate_ab_params: "",
+            evaluate_common_params: ""
+          }
+        },
+        channel: 2,
+        version: "1"
+      }
+    }
+
+    let anchorIndex: number = startNextIndex ? Number(startNextIndex) : 999999
+    let fetched = 0
+    const maxPages = 2000 // 安全上限：约 2000 * 20 = 4w 条消息
+    let pageDelay = 120   // 初始间隔；遇到错误会退避
+    let consecutiveErrors = 0
+    const maxConsecutiveErrors = 5
+
+    for (let page = 0; page < maxPages; page++) {
+      // 确保请求体包含正确的 uplink_body 结构
+      if (!req.uplink_body || typeof req.uplink_body !== "object") {
+        req.uplink_body = {}
+      }
+      const uplink = req.uplink_body as Record<string, any>
+      if (!uplink.pull_singe_chain_uplink_body || typeof uplink.pull_singe_chain_uplink_body !== "object") {
+        uplink.pull_singe_chain_uplink_body = {}
+      }
+      const body = uplink.pull_singe_chain_uplink_body
+      body.anchor_index = anchorIndex
+      body.direction = 1
+      body.limit = 20
+      body.conversation_type = body.conversation_type ?? 3
+      body.ext = body.ext ?? {}
+      body.filter = body.filter ?? { index_list: [] }
+
+      let data: any
+      let lastError: string | null = null
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const res = await fetch(url, {
+            method: "POST",
+            credentials: "include",
+            headers: { "content-type": "application/json; encoding=utf-8" },
+            body: JSON.stringify(req)
+          })
+          if (!res.ok) {
+            lastError = `HTTP ${res.status}`
+          } else {
+            data = await res.json()
+            if (data?.status_code) {
+              lastError = `${data.status_code}: ${data.status_desc || "unknown"}`
+              data = null
+            } else {
+              lastError = null
+              break
+            }
+          }
+        } catch (e) {
+          lastError = String(e)
+        }
+        if (attempt < 2) {
+          pageDelay = Math.min(pageDelay + 200, 2000)
+          await sleep(pageDelay)
+        }
+      }
+
+      if (lastError || !data) {
+        consecutiveErrors++
+        if (consecutiveErrors >= maxConsecutiveErrors) {
+          result.error = `连续 ${maxConsecutiveErrors} 次请求失败，最后一次：${lastError || "unknown"}`
+          break
+        }
+        // 单页错误：跳过当前 anchor，尝试下一页（可能服务端该页异常）
+        anchorIndex = Math.max(0, anchorIndex - 20)
+        if (page > 0) await sleep(pageDelay)
+        continue
+      }
+      consecutiveErrors = 0
+
+      const chain = getDeepPath(data, ["downlink_body", "pull_singe_chain_downlink_body"])
+      if (!chain || typeof chain !== "object") {
+        result.error = "响应缺少 pull_singe_chain_downlink_body"
+        break
+      }
+      const msgs = Array.isArray(chain.messages) ? chain.messages : []
+      fetched += msgs.length
+      if (chain.has_more === false || !chain.next_index) {
+        result.reachedTop = true
+        break
+      }
+      anchorIndex = Number(chain.next_index)
+      if (page > 0) await sleep(pageDelay)
+    }
+
+    result.ok = !result.error
+    result.fetched = fetched
+  } catch (e) {
+    result.error = String(e)
+  }
+  postBatchResult(result)
+}
+
+function postBatchResult(result: { ok: boolean; fetched: number; reachedTop: boolean; error?: string }) {
+  window.postMessage({ __tag: "ACK_BATCH_FETCH_RESULT", ...result }, "*")
+}
+
+function parseDoubaoChainRequest(body: string): any | null {
+  try {
+    const json = JSON.parse(body)
+    if (!json || typeof json !== "object") return null
+    return json
+  } catch {
+    return null
+  }
+}
+
+function setDeepPath(obj: any, path: string[], value: unknown): void {
+  let cur = obj
+  for (let i = 0; i < path.length - 1; i++) {
+    if (cur == null || typeof cur !== "object") return
+    cur = cur[path[i]]
+  }
+  const last = path[path.length - 1]
+  if (cur != null && typeof cur === "object") {
+    cur[last] = value
+  }
+}
+
+function getDeepPath(obj: any, path: string[]): any {
+  let cur = obj
+  for (const p of path) {
+    if (cur == null || typeof cur !== "object") return undefined
+    cur = cur[p]
+  }
+  return cur
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms))
+}
+
+function cryptoRandomUUID(): string {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID()
+  }
+  return `${1e7}-${1e3}-${4e3}-${8e3}-${1e11}`.replace(/[018]/g, (c) =>
+    (Number(c) ^ (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (Number(c) / 4)))).toString(16)
+  )
 }

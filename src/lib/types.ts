@@ -40,6 +40,7 @@ export interface RawPayload {
   status?: number
   capturedAt: number
   body: string            // 统一为文本；SSE 合并后原文
+  requestBody?: string    // 请求体原文（用于分析/复现分页参数）
 }
 
 export interface IngestEvent {
@@ -48,5 +49,6 @@ export interface IngestEvent {
   url: string
   status?: number
   body: string
+  requestBody?: string
   capturedAt: number
 }
