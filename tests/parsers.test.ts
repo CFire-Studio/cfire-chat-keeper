@@ -1,4 +1,4 @@
-// 离线测试：用真实/合成 payload 跑 parsers
+﻿// 离线测试：用真实/合成 payload 跑 parsers
 // 运行：npx tsx tests/parsers.test.ts
 import * as fs from "node:fs"
 import * as path from "node:path"
@@ -952,3 +952,4 @@ function assert(name: string, cond: boolean, extra?: unknown) {
 
 console.log(`\n=== Result: ${pass} passed, ${fail} failed ===`)
 if (fail > 0) process.exit(1)
+

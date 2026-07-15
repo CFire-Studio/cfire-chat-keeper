@@ -1,4 +1,4 @@
-// 直接测试豆包 /im/chain/single 批量翻页
+﻿// 直接测试豆包 /im/chain/single 批量翻页
 // 规律：direction=1 表示向旧消息翻页；anchor_index=999999 可从最新开始；
 //       后续 anchor_index 用上一页响应的 next_index，直到 has_more=false。
 const http = require("http")
@@ -178,3 +178,4 @@ main().catch((e) => {
   console.error("FATAL:", e)
   process.exit(1)
 })
+

@@ -1,4 +1,4 @@
-// 直接构造 /im/chain/single 请求体测试批量翻页
+﻿// 直接构造 /im/chain/single 请求体测试批量翻页
 // 不依赖滚动触发，直接尝试不同的 anchor_index + direction 组合
 const http = require("http")
 const WebSocket = require("ws")
@@ -119,3 +119,4 @@ main().catch((e) => {
   console.error("FATAL:", e)
   process.exit(1)
 })
+

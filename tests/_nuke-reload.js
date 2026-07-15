@@ -1,4 +1,4 @@
-// 彻底重载流程：
+﻿// 彻底重载流程：
 // 1. 导航 Doubao tab 到 about:blank（卸载 content script）
 // 2. 重载扩展
 // 3. 等待扩展重载完成
@@ -80,3 +80,4 @@ main().catch(e => {
   console.error('ERROR:', e)
   process.exit(1)
 })
+

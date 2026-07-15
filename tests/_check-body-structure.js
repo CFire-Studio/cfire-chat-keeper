@@ -1,4 +1,4 @@
-// 检查 raw 表中后续 4 组响应的 body 结构，确认 parseDoubao 能否正确解析
+﻿// 检查 raw 表中后续 4 组响应的 body 结构，确认 parseDoubao 能否正确解析
 (async function() {
   function openDb() {
     return new Promise(function(resolve, reject) {
@@ -71,3 +71,4 @@
     groups: Object.values(groups)
   });
 })()
+

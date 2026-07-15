@@ -1,4 +1,4 @@
-(async function() {
+﻿(async function() {
   return new Promise(function(resolve) {
     var req = indexedDB.open('cfire-chat-keeper', 1);
     req.onsuccess = function() {
@@ -32,3 +32,4 @@
     req.onerror = function() { resolve(JSON.stringify({ error: 'DB open failed' })); };
   });
 })()
+

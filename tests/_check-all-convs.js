@@ -1,4 +1,4 @@
-// 查询 DB 中所有对话和消息的 turnId，与 raw 表对比
+﻿// 查询 DB 中所有对话和消息的 turnId，与 raw 表对比
 (async function() {
   function openDb() {
     return new Promise(function(resolve, reject) {
@@ -82,3 +82,4 @@
     notInDbIds: notInDbIds
   });
 })()
+

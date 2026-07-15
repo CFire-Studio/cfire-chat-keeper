@@ -1,4 +1,4 @@
-(async function() {
+﻿(async function() {
   // Query IndexedDB directly from the page context
   return new Promise(function(resolve) {
     var req = indexedDB.open('cfire-chat-keeper', 1);
@@ -37,3 +37,4 @@
     };
   });
 })()
+

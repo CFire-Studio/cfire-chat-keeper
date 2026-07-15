@@ -1,4 +1,4 @@
-// 端到端测试：重载扩展 + 重载页面 + 触发 scrollUpLoop + 验证 DB
+﻿// 端到端测试：重载扩展 + 重载页面 + 触发 scrollUpLoop + 验证 DB
 // 用法: node tests/_e2e-reparse.js <doubao-page-ws-url>
 
 const http = require('http')
@@ -355,3 +355,4 @@ setTimeout(() => {
   console.error('TIMEOUT after 300s')
   process.exit(1)
 }, 300000)
+

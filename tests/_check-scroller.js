@@ -1,4 +1,4 @@
-const http = require("http")
+﻿const http = require("http")
 const WebSocket = require("ws")
 
 async function main() {
@@ -48,3 +48,4 @@ main().catch((e) => {
   console.error(e)
   process.exit(1)
 })
+

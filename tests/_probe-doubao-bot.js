@@ -1,4 +1,4 @@
-// 临时探测脚本：通过 CDP 打开豆包内置智能体页面，捕获网络响应与 DOM 结构
+﻿// 临时探测脚本：通过 CDP 打开豆包内置智能体页面，捕获网络响应与 DOM 结构
 const WebSocket = require("ws")
 const http = require("http")
 
@@ -161,3 +161,4 @@ main().catch((e) => {
   console.error("FATAL:", e)
   process.exit(1)
 })
+

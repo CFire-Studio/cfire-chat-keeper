@@ -1,4 +1,4 @@
-// 监听豆包页面向上滚动时 /im/chain/single 的分页请求参数
+﻿// 监听豆包页面向上滚动时 /im/chain/single 的分页请求参数
 const http = require("http")
 const WebSocket = require("ws")
 
@@ -87,3 +87,4 @@ main().catch((e) => {
   console.error("FATAL:", e)
   process.exit(1)
 })
+
